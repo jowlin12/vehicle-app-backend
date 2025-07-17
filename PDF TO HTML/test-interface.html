@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Probador de API HTML a PDF</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #007bff;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .section h2 {
+            color: #333;
+            margin-top: 0;
+        }
+        textarea {
+            width: 100%;
+            height: 200px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: monospace;
+            resize: vertical;
+        }
+        input[type="text"], input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+        .success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .file-list {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .file-item:last-child {
+            border-bottom: none;
+        }
+        .options-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin: 15px 0;
+        }
+        .option-group {
+            display: flex;
+            flex-direction: column;
+        }
+        .option-group label {
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        select {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔄 Probador de API HTML a PDF</h1>
+
+        <!-- Sección 1: Convertir contenido HTML -->
+        <div class="section">
+            <h2>📝 Convertir Contenido HTML</h2>
+            <textarea id="htmlContent" placeholder="Ingresa tu contenido HTML aquí..."><!DOCTYPE html>
+<html>
+<head>
+    <title>Mi Documento</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        h1 { color: #007bff; }
+        .highlight { background-color: #fff3cd; padding: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Documento de Prueba</h1>
+    <p>Este es un documento de ejemplo generado desde HTML.</p>
+    <div class="highlight">
+        <strong>Nota:</strong> Este contenido se convertirá a PDF.
+    </div>
+    <ul>
+        <li>Elemento de lista 1</li>
+        <li>Elemento de lista 2</li>
+        <li>Elemento de lista 3</li>
+    </ul>
+</body>
+</html></textarea>
+            
+            <input type="text" id="filename1" placeholder="Nombre del archivo (opcional)" value="mi-documento">
+            
+            <div class="options-grid">
+                <div class="option-group">
+                    <label>Formato:</label>
+                    <select id="format">
+                        <option value="A4">A4</option>
+                        <option value="A3">A3</option>
+                        <option value="Letter">Letter</option>
+                        <option value="Legal">Legal</option>
+                    </select>
+                </div>
+                <div class="option-group">
+                    <label>Orientación:</label>
+                    <select id="landscape">
+                        <option value="false">Vertical</option>
+                        <option value="true">Horizontal</option>
+                    </select>
+                </div>
+                <div class="option-group">
+                    <label>Margen Superior:</label>
+                    <input type="text" id="marginTop" value="20px">
+                </div>
+                <div class="option-group">
+                    <label>Margen Lateral:</label>
+                    <input type="text" id="marginSide" value="20px">
+                </div>
+            </div>
+            
+            <button onclick="convertContent()">🔄 Convertir HTML a PDF</button>
+            <div id="result1" class="result" style="display: none;"></div>
+        </div>
+
+        <!-- Sección 2: Convertir archivo HTML -->
+        <div class="section">
+            <h2>📁 Convertir Archivo HTML</h2>
+            <input type="file" id="htmlFile" accept=".html">
+            <input type="text" id="filename2" placeholder="Nombre del archivo (opcional)" value="archivo-convertido">
+            <button onclick="convertFile()">📄 Convertir Archivo a PDF</button>
+            <div id="result2" class="result" style="display: none;"></div>
+        </div>
+
+        <!-- Sección 3: Gestión de archivos -->
+        <div class="section">
+            <h2>📋 Gestión de Archivos PDF</h2>
+            <button onclick="loadFiles()">🔄 Actualizar Lista</button>
+            <button onclick="clearOldFiles()">🗑️ Limpiar Archivos Antiguos</button>
+            <div id="fileList" class="file-list"></div>
+        </div>
+
+        <!-- Sección 4: Ejemplos rápidos -->
+        <div class="section">
+            <h2>⚡ Ejemplos Rápidos</h2>
+            <button onclick="loadExample('simple')">📄 Documento Simple</button>
+            <button onclick="loadExample('invoice')">🧾 Factura</button>
+            <button onclick="loadExample('report')">📊 Reporte</button>
+            <button onclick="testAPI()">🧪 Probar Conexión API</button>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:3000';
+
+        // Función para convertir contenido HTML
+        async function convertContent() {
+            const htmlContent = document.getElementById('htmlContent').value;
+            const filename = document.getElementById('filename1').value || 'documento';
+            
+            const options = {
+                format: document.getElementById('format').value,
+                landscape: document.getElementById('landscape').value === 'true',
+                margin: {
+                    top: document.getElementById('marginTop').value,
+                    right: document.getElementById('marginSide').value,
+                    bottom: document.getElementById('marginTop').value,
+                    left: document.getElementById('marginSide').value
+                },
+                printBackground: true
+            };
+
+            try {
+                showResult('result1', 'Convirtiendo...', 'info');
+                
+                const response = await fetch(`${API_BASE_URL}/convert-html-content`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        htmlContent,
+                        filename,
+                        options
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    showResult('result1', `✅ PDF generado exitosamente!\nArchivo: ${result.filename}\nTamaño: ${result.size} bytes`, 'success');
+                    
+                    // Crear botón de descarga
+                    const downloadBtn = document.createElement('button');
+                    downloadBtn.textContent = '⬇️ Descargar PDF';
+                    downloadBtn.onclick = () => downloadPdf(result.filename);
+                    document.getElementById('result1').appendChild(downloadBtn);
+                    
+                    loadFiles(); // Actualizar lista de archivos
+                } else {
+                    showResult('result1', `❌ Error: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showResult('result1', `❌ Error de conexión: ${error.message}`, 'error');
+            }
+        }
+
+        // Función para convertir archivo
+        async function convertFile() {
+            const fileInput = document.getElementById('htmlFile');
+            const file = fileInput.files[0];
+            const filename = document.getElementById('filename2').value || 'archivo-convertido';
+
+            if (!file) {
+                showResult('result2', '❌ Por favor selecciona un archivo HTML', 'error');
+                return;
+            }
+
+            try {
+                showResult('result2', 'Convirtiendo archivo...', 'info');
+                
+                const formData = new FormData();
+                formData.append('htmlFile', file);
+                formData.append('filename', filename);
+
+                const response = await fetch(`${API_BASE_URL}/convert-html-file`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    showResult('result2', `✅ Archivo convertido exitosamente!\nArchivo: ${result.filename}\nTamaño: ${result.size} bytes`, 'success');
+                    
+                    // Crear botón de descarga
+                    const downloadBtn = document.createElement('button');
+                    downloadBtn.textContent = '⬇️ Descargar PDF';
+                    downloadBtn.onclick = () => downloadPdf(result.filename);
+                    document.getElementById('result2').appendChild(downloadBtn);
+                    
+                    loadFiles(); // Actualizar lista de archivos
+                } else {
+                    showResult('result2', `❌ Error: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showResult('result2', `❌ Error de conexión: ${error.message}`, 'error');
+            }
+        }
+
+        // Función para cargar lista de archivos
+        async function loadFiles() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/files`);
+                const result = await response.json();
+                
+                const fileList = document.getElementById('fileList');
+                fileList.innerHTML = '';
+                
+                if (result.files && result.files.length > 0) {
+                    result.files.forEach(file => {
+                        const fileItem = document.createElement('div');
+                        fileItem.className = 'file-item';
+                        fileItem.innerHTML = `
+                            <div>
+                                <strong>${file.filename}</strong><br>
+                                <small>Tamaño: ${file.size} bytes | Creado: ${new Date(file.created).toLocaleString()}</small>
+                            </div>
+                            <div>
+                                <button onclick="downloadPdf('${file.filename}')">⬇️ Descargar</button>
+                                <button onclick="deleteFile('${file.filename}')" style="background-color: #dc3545;">🗑️ Eliminar</button>
+                            </div>
+                        `;
+                        fileList.appendChild(fileItem);
+                    });
+                } else {
+                    fileList.innerHTML = '<p>No hay archivos PDF disponibles.</p>';
+                }
+            } catch (error) {
+                document.getElementById('fileList').innerHTML = `<p>Error al cargar archivos: ${error.message}</p>`;
+            }
+        }
+
+        // Función para descargar PDF
+        function downloadPdf(filename) {
+            window.open(`${API_BASE_URL}/download/${filename}`, '_blank');
+        }
+
+        // Función para eliminar archivo
+        async function deleteFile(filename) {
+            if (!confirm(`¿Estás seguro de que quieres eliminar ${filename}?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/delete/${filename}`, {
+                    method: 'DELETE'
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert('Archivo eliminado exitosamente');
+                    loadFiles(); // Actualizar lista
+                } else {
+                    alert(`Error al eliminar archivo: ${result.error}`);
+                }
+            } catch (error) {
+                alert(`Error de conexión: ${error.message}`);
+            }
+        }
+
+        // Función para limpiar archivos antiguos
+        async function clearOldFiles() {
+            if (!confirm('¿Eliminar archivos creados hace más de 1 hora?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/files`);
+                const result = await response.json();
+                
+                const now = new Date();
+                const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+                
+                let deletedCount = 0;
+                
+                for (const file of result.files) {
+                    const fileDate = new Date(file.created);
+                    if (fileDate < oneHourAgo) {
+                        await fetch(`${API_BASE_URL}/delete/${file.filename}`, {
+                            method: 'DELETE'
+                        });
+                        deletedCount++;
+                    }
+                }
+                
+                alert(`${deletedCount} archivos eliminados`);
+                loadFiles();
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
+
+        // Función para cargar ejemplos
+        function loadExample(type) {
+            const textarea = document.getElementById('htmlContent');
+            
+            switch (type) {
+                case 'simple':
+                    textarea.value = `<!DOCTYPE html>
+<html>
+<head>
+    <title>Documento Simple</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; line-height: 1.6; }
+        h1 { color: #007bff; }
+        .box { background: #f8f9fa; padding: 20px; border-left: 4px solid #007bff; }
+    </style>
+</head>
+<body>
+    <h1>Documento Simple</h1>
+    <p>Este es un ejemplo de documento simple con formato básico.</p>
+    <div class="box">
+        <h3>Información Importante</h3>
+        <p>Este es un cuadro destacado con información relevante.</p>
+    </div>
+    <h2>Lista de Elementos</h2>
+    <ul>
+        <li>Primer elemento</li>
+        <li>Segundo elemento</li>
+        <li>Tercer elemento</li>
+    </ul>
+</body>
+</html>`;
+                    break;
+                    
+                case 'invoice':
+                    textarea.value = `<!DOCTYPE html>
+<html>
+<head>
+    <title>Factura</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .header { text-align: center; border-bottom: 2px solid #007bff; padding-bottom: 20px; }
+        .invoice-details { display: flex; justify-content: space-between; margin: 20px 0; }
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        th { background-color: #007bff; color: white; }
+        .total { text-align: right; font-weight: bold; font-size: 18px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>FACTURA #001</h1>
+        <p>Mi Empresa S.A.</p>
+    </div>
+    <div class="invoice-details">
+        <div>
+            <h3>Facturar a:</h3>
+            <p>Cliente Ejemplo<br>Dirección 123<br>Ciudad, Estado</p>
+        </div>
+        <div>
+            <p><strong>Fecha:</strong> ${new Date().toLocaleDateString()}</p>
+            <p><strong>Vencimiento:</strong> ${new Date(Date.now() + 30*24*60*60*1000).toLocaleDateString()}</p>
+        </div>
+    </div>
+    <table>
+        <tr><th>Descripción</th><th>Cantidad</th><th>Precio</th><th>Total</th></tr>
+        <tr><td>Producto A</td><td>2</td><td>$50.00</td><td>$100.00</td></tr>
+        <tr><td>Producto B</td><td>1</td><td>$75.00</td><td>$75.00</td></tr>
+    </table>
+    <div class="total">Total: $175.00</div>
+</body>
+</html>`;
+                    break;
+                    
+                case 'report':
+                    textarea.value = `<!DOCTYPE html>
+<html>
+<head>
+    <title>Reporte Mensual</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 30px; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .section { margin-bottom: 25px; }
+        .metric { display: inline-block; background: #f8f9fa; padding: 15px; margin: 10px; border-radius: 5px; text-align: center; }
+        .metric h3 { margin: 0; color: #007bff; }
+        .metric p { margin: 5px 0 0 0; font-size: 24px; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Reporte Mensual</h1>
+        <p>Período: ${new Date().toLocaleDateString()}</p>
+    </div>
+    <div class="section">
+        <h2>Métricas Principales</h2>
+        <div class="metric">
+            <h3>Ventas</h3>
+            <p>$12,345</p>
+        </div>
+        <div class="metric">
+            <h3>Clientes</h3>
+            <p>156</p>
+        </div>
+        <div class="metric">
+            <h3>Productos</h3>
+            <p>89</p>
+        </div>
+    </div>
+    <div class="section">
+        <h2>Resumen</h2>
+        <p>Este mes hemos experimentado un crecimiento del 15% en ventas comparado con el mes anterior. Los productos más vendidos fueron...</p>
+    </div>
+</body>
+</html>`;
+                    break;
+            }
+        }
+
+        // Función para probar conexión con la API
+        async function testAPI() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/`);
+                const result = await response.json();
+                alert(`✅ Conexión exitosa con la API!\n\nMensaje: ${result.message}`);
+            } catch (error) {
+                alert(`❌ Error de conexión con la API:\n${error.message}\n\n¿Está el servidor ejecutándose en ${API_BASE_URL}?`);
+            }
+        }
+
+        // Función auxiliar para mostrar resultados
+        function showResult(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.style.display = 'block';
+            element.textContent = message;
+            element.className = `result ${type}`;
+            
+            // Limpiar botones anteriores
+            const buttons = element.querySelectorAll('button');
+            buttons.forEach(btn => btn.remove());
+        }
+
+        // Cargar archivos al iniciar
+        window.addEventListener('load', () => {
+            loadFiles();
+        });
+    </script>
+</body>
+</html>
