@@ -169,8 +169,13 @@ app.post('/api/generate-invoice', async (req, res) => {
       }
     );
 
-    // La nueva API devuelve directamente el enlace de Google Drive
-    const driveUrl = response.data.url || response.data.driveUrl || response.data;
+    // La nueva API devuelve la URL en una estructura anidada
+    const driveUrl = response.data.data?.googleDrive?.viewLink || 
+                     response.data.data?.googleDrive?.directLink || 
+                     response.data.data?.googleDrive?.downloadLink ||
+                     response.data.url || 
+                     response.data.driveUrl || 
+                     response.data;
 
     // Lógica para crear o actualizar la factura en la base de datos
     const { data: existingInvoice } = await supabase
@@ -208,7 +213,28 @@ app.post('/api/generate-invoice', async (req, res) => {
       .update({ url_documento: driveUrl })
       .eq('clave_key', formato.clave_key);
 
-    res.status(200).json({ invoiceUrl: driveUrl });
+    res.status(200).json({ 
+      success: true,
+      message: 'Factura generada exitosamente',
+      data: {
+        pdf: {
+          fileName: `factura-${formato.clave_key}.pdf`,
+          url: driveUrl
+        },
+        googleDrive: {
+          viewLink: driveUrl,
+          directLink: driveUrl,
+          downloadLink: driveUrl
+        }
+      },
+      // Campos adicionales para compatibilidad
+      invoiceUrl: driveUrl,
+      pdfUrl: driveUrl,
+      url: driveUrl,
+      driveUrl: driveUrl,
+      factura_pdf: driveUrl,
+      timestamp: new Date().toISOString()
+    });
 
   } catch (error) {
     console.error('Error detallado al generar la factura:', error.response ? error.response.data : error.message);
