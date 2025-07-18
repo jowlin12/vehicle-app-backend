@@ -170,9 +170,10 @@ app.post('/api/generate-invoice', async (req, res) => {
     );
 
     // La nueva API devuelve la URL en una estructura anidada
-    const driveUrl = response.data.data?.googleDrive?.viewLink || 
-                     response.data.data?.googleDrive?.directLink || 
+    // Priorizar la URL de descarga directa para evitar problemas de formato
+    const driveUrl = response.data.data?.googleDrive?.directLink || 
                      response.data.data?.googleDrive?.downloadLink ||
+                     response.data.data?.googleDrive?.viewLink || 
                      response.data.url || 
                      response.data.driveUrl || 
                      response.data;
@@ -222,9 +223,9 @@ app.post('/api/generate-invoice', async (req, res) => {
           url: driveUrl
         },
         googleDrive: {
-          viewLink: driveUrl,
           directLink: driveUrl,
-          downloadLink: driveUrl
+          downloadLink: driveUrl,
+          viewLink: response.data.data?.googleDrive?.viewLink || driveUrl
         }
       },
       // Campos adicionales para compatibilidad
