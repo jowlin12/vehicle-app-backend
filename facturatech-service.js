@@ -33,11 +33,11 @@ class FacturatechService {
             console.warn('[Facturatech] ADVERTENCIA: FACTURATECH_PASSWORD no está configurado');
         }
         if (this.browserlessToken) {
-            console.log('[Facturatech] Browserless configurado - se usará para evitar bloqueos de Cloudflare');
+            console.log('[Facturatech] ScrapingBee configurado - se usará para evitar bloqueos de Cloudflare');
         } else if (this.proxyAgent) {
             console.log('[Facturatech] Proxy configurado:', this.proxyUrl.replace(/:[^:@]+@/, ':****@'));
         } else {
-            console.log('[Facturatech] Sin proxy/Browserless. Si hay errores 502, configure BROWSERLESS_TOKEN');
+            console.log('[Facturatech] Sin proxy/ScrapingBee. Si hay errores 502, configure BROWSERLESS_TOKEN con tu API key de ScrapingBee');
         }
     }
 
@@ -50,54 +50,49 @@ class FacturatechService {
     }
 
     /**
-     * Ejecuta una petición HTTP a través de Browserless /function endpoint
-     * Esto permite hacer peticiones desde los servidores de Browserless, evitando bloqueos de WAF
+     * Ejecuta una petición HTTP a través de ScrapingBee
+     * ScrapingBee actúa como proxy, haciendo la petición desde sus servidores
+     * para evitar bloqueos de Cloudflare/WAF
+     * 
+     * Configurar: SCRAPINGBEE_API_KEY en las variables de entorno
      */
-    async _ejecutarViaBrowserless(endpoint, envelope, headers) {
-        const functionCode = `
-export default async function ({ context }) {
-    const response = await fetch(context.endpoint, {
-        method: 'POST',
-        headers: context.headers,
-        body: context.body
-    });
-    const text = await response.text();
-    return {
-        data: {
-            status: response.status,
-            statusText: response.statusText,
-            body: text
-        },
-        type: "application/json"
-    };
-}`;
+    async _ejecutarViaScrapingBee(endpoint, envelope, headers) {
+        const apiKey = this.browserlessToken; // Reutilizamos la misma variable para simplificar
 
-        console.log('[Facturatech] Ejecutando petición a través de Browserless...');
+        console.log('[Facturatech] Ejecutando petición a través de ScrapingBee...');
 
-        const browserlessUrl = `${this.browserlessEndpoint}/function?token=${this.browserlessToken}`;
+        // ScrapingBee endpoint con parámetros
+        const scrapingBeeUrl = 'https://app.scrapingbee.com/api/v1/';
 
-        // Usar JSON API de Browserless para pasar contexto
-        const response = await axios.post(browserlessUrl, {
-            code: functionCode,
-            context: {
-                endpoint: endpoint,
-                headers: headers,
-                body: envelope
-            }
-        }, {
+        // Codificar headers como JSON para ScrapingBee
+        const customHeaders = JSON.stringify(headers);
+
+        const response = await axios.get(scrapingBeeUrl, {
+            params: {
+                api_key: apiKey,
+                url: endpoint,
+                // Indicar que es una petición POST
+                request_type: 'POST',
+                // El body va codificado en base64
+                post_body: Buffer.from(envelope).toString('base64'),
+                // Headers personalizados
+                custom_headers: 'true',
+                'header_Content-Type': headers['Content-Type'],
+                'header_SOAPAction': headers['SOAPAction'],
+                // Devolver el contenido sin renderizar
+                render_js: 'false',
+                // Usar proxy premium para mejor evasión
+                premium_proxy: 'false'
+            },
             headers: {
-                'Content-Type': 'application/json'
+                'Accept': '*/*'
             },
             timeout: 120000
         });
 
-        console.log('[Facturatech] Respuesta de Browserless recibida, status:', response.data?.status);
+        console.log('[Facturatech] Respuesta de ScrapingBee recibida');
 
-        if (response.data && response.data.body) {
-            return response.data.body;
-        }
-
-        throw new Error('Browserless no devolvió respuesta válida: ' + JSON.stringify(response.data));
+        return response.data;
     }
 
     /**
@@ -291,14 +286,14 @@ export default async function ({ context }) {
         try {
             let responseData;
 
-            // Prioridad 1: Usar Browserless si está configurado
+            // Prioridad 1: Usar ScrapingBee si está configurado (BROWSERLESS_TOKEN ahora es la API key de ScrapingBee)
             if (this.browserlessToken) {
                 try {
-                    responseData = await this._ejecutarViaBrowserless(this.endpoint, envelope, headers);
-                } catch (browserlessError) {
-                    console.error('[Facturatech] Error con Browserless:', browserlessError.message);
-                    // Si falla Browserless, continuar con el método directo
-                    throw browserlessError;
+                    responseData = await this._ejecutarViaScrapingBee(this.endpoint, envelope, headers);
+                } catch (scrapingBeeError) {
+                    console.error('[Facturatech] Error con ScrapingBee:', scrapingBeeError.message);
+                    // Si falla ScrapingBee, relanzar el error para reintentar
+                    throw scrapingBeeError;
                 }
             } else {
                 // Método directo con axios (con o sin proxy)
