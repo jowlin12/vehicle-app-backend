@@ -18,13 +18,10 @@ class FacturatechService {
         this.env = process.env.FACTURATECH_ENV || 'demo';
         this.endpoint = ENDPOINTS[this.env];
 
-        // Configuración de proxy para evitar bloqueos de Cloudflare
+        // Configuración de proxy HTTP para evitar bloqueos de Cloudflare (opcional)
+        // Formato: http://user:pass@proxy.example.com:8080
         this.proxyUrl = process.env.FACTURATECH_PROXY_URL || '';
         this.proxyAgent = this.proxyUrl ? new HttpsProxyAgent(this.proxyUrl) : null;
-
-        // Configuración de Browserless (alternativa preferida)
-        this.browserlessToken = process.env.BROWSERLESS_TOKEN || '';
-        this.browserlessEndpoint = process.env.BROWSERLESS_ENDPOINT || 'https://production-sfo.browserless.io';
 
         if (!this.user) {
             console.warn('[Facturatech] ADVERTENCIA: FACTURATECH_USER no está configurado');
@@ -32,12 +29,10 @@ class FacturatechService {
         if (!process.env.FACTURATECH_PASSWORD) {
             console.warn('[Facturatech] ADVERTENCIA: FACTURATECH_PASSWORD no está configurado');
         }
-        if (this.browserlessToken) {
-            console.log('[Facturatech] ScrapingBee configurado - se usará para evitar bloqueos de Cloudflare');
-        } else if (this.proxyAgent) {
-            console.log('[Facturatech] Proxy configurado:', this.proxyUrl.replace(/:[^:@]+@/, ':****@'));
+        if (this.proxyAgent) {
+            console.log('[Facturatech] Proxy HTTP configurado:', this.proxyUrl.replace(/:[^:@]+@/, ':****@'));
         } else {
-            console.log('[Facturatech] Sin proxy/ScrapingBee. Si hay errores 502, configure BROWSERLESS_TOKEN con tu API key de ScrapingBee');
+            console.log('[Facturatech] Modo directo (sin proxy). Los errores 502 son intermitentes de Cloudflare.');
         }
     }
 
@@ -47,52 +42,6 @@ class FacturatechService {
     _hashPassword(password) {
         if (!password) return '';
         return crypto.createHash('sha256').update(password).digest('hex');
-    }
-
-    /**
-     * Ejecuta una petición HTTP a través de ScrapingBee
-     * ScrapingBee actúa como proxy, haciendo la petición desde sus servidores
-     * para evitar bloqueos de Cloudflare/WAF
-     * 
-     * Configurar: SCRAPINGBEE_API_KEY en las variables de entorno
-     */
-    async _ejecutarViaScrapingBee(endpoint, envelope, headers) {
-        const apiKey = this.browserlessToken; // Reutilizamos la misma variable para simplificar
-
-        console.log('[Facturatech] Ejecutando petición a través de ScrapingBee...');
-
-        // ScrapingBee endpoint con parámetros
-        const scrapingBeeUrl = 'https://app.scrapingbee.com/api/v1/';
-
-        // Codificar headers como JSON para ScrapingBee
-        const customHeaders = JSON.stringify(headers);
-
-        const response = await axios.get(scrapingBeeUrl, {
-            params: {
-                api_key: apiKey,
-                url: endpoint,
-                // Indicar que es una petición POST
-                request_type: 'POST',
-                // El body va codificado en base64
-                post_body: Buffer.from(envelope).toString('base64'),
-                // Headers personalizados
-                custom_headers: 'true',
-                'header_Content-Type': headers['Content-Type'],
-                'header_SOAPAction': headers['SOAPAction'],
-                // Devolver el contenido sin renderizar
-                render_js: 'false',
-                // Usar proxy premium para mejor evasión
-                premium_proxy: 'false'
-            },
-            headers: {
-                'Accept': '*/*'
-            },
-            timeout: 120000
-        });
-
-        console.log('[Facturatech] Respuesta de ScrapingBee recibida');
-
-        return response.data;
     }
 
     /**
@@ -284,35 +233,23 @@ class FacturatechService {
         const headers = headersVariants[(attempt - 1) % headersVariants.length];
 
         try {
-            let responseData;
+            // Configurar axios con soporte de proxy opcional
+            const axiosConfig = {
+                headers,
+                timeout: 120000,
+                decompress: attempt > 1 ? false : true,
+                responseType: 'text'
+            };
 
-            // Prioridad 1: Usar ScrapingBee si está configurado (BROWSERLESS_TOKEN ahora es la API key de ScrapingBee)
-            if (this.browserlessToken) {
-                try {
-                    responseData = await this._ejecutarViaScrapingBee(this.endpoint, envelope, headers);
-                } catch (scrapingBeeError) {
-                    console.error('[Facturatech] Error con ScrapingBee:', scrapingBeeError.message);
-                    // Si falla ScrapingBee, relanzar el error para reintentar
-                    throw scrapingBeeError;
-                }
-            } else {
-                // Método directo con axios (con o sin proxy)
-                const axiosConfig = {
-                    headers,
-                    timeout: 120000,
-                    decompress: attempt > 1 ? false : true,
-                    responseType: 'text'
-                };
-
-                if (this.proxyAgent) {
-                    axiosConfig.httpsAgent = this.proxyAgent;
-                    axiosConfig.proxy = false;
-                    console.log(`[Facturatech] Usando proxy para intento ${attempt}`);
-                }
-
-                const response = await axios.post(this.endpoint, envelope, axiosConfig);
-                responseData = response.data;
+            // Usar proxy HTTP si está configurado
+            if (this.proxyAgent) {
+                axiosConfig.httpsAgent = this.proxyAgent;
+                axiosConfig.proxy = false;
+                console.log(`[Facturatech] Usando proxy para intento ${attempt}`);
             }
+
+            const response = await axios.post(this.endpoint, envelope, axiosConfig);
+            const responseData = response.data;
 
             // Log de respuesta - si es corta, mostrar completa para diagnóstico
             const previewLength = responseData.length < 1000 ? responseData.length : 500;
