@@ -18,6 +18,14 @@ class FacturatechService {
         this.env = process.env.FACTURATECH_ENV || 'demo';
         this.endpoint = ENDPOINTS[this.env];
 
+        // Debug de variables de entorno (ofuscado)
+        console.log('[Facturatech] Variables de entorno detectadas:', {
+            USER: !!process.env.FACTURATECH_USER,
+            PASS: !!process.env.FACTURATECH_PASSWORD,
+            PROXY: !!process.env.FACTURATECH_PROXY_URL,
+            PROXY_VAL: process.env.FACTURATECH_PROXY_URL ? (process.env.FACTURATECH_PROXY_URL.substring(0, 7) + '...') : 'undefined'
+        });
+
         // Configuración de proxy HTTP para evitar bloqueos de Cloudflare (opcional)
         // Formato: http://user:pass@proxy.example.com:8080
         this.proxyUrl = process.env.FACTURATECH_PROXY_URL || '';
@@ -102,8 +110,8 @@ class FacturatechService {
                 `ITE_15;${valorIva.toFixed(2)};`,
                 `ITE_18;${totalLinea.toFixed(2)};`,
                 '(/ITE)'
-            ].join('\n');
-        }).join('\n');
+            ].join('\r\n');
+        }).join('\r\n');
 
         // Construir Layout completo en formato Flat File
         const layout = [
@@ -159,9 +167,10 @@ class FacturatechService {
             'TOT_2;01;',
             `TOT_3;${totales.iva.toFixed(2)};`,
             `TOT_4;${totales.total.toFixed(2)};`,
+            `TOT_4;${totales.total.toFixed(2)};`,
             '(/TOT)',
             itemsLayout
-        ].join('\n');
+        ].join('\r\n');
 
         return layout;
     }
@@ -374,10 +383,17 @@ class FacturatechService {
      * @returns {Promise<{success: boolean, transactionId?: string, error?: string}>}
      */
     async uploadInvoiceFileLayout(xmlLayout) {
-        const xmlBase64 = Buffer.from(xmlLayout, 'utf-8').toString('base64');
+        // Asegurar formato limpio: trimming y sin BOM
+        const sanitizedLayout = xmlLayout.trim().replace(/^\uFEFF/, '');
+
+        // Debug: Mostrar primeros bytes en HEX para detectar caracteres invisibles
+        const hexPreview = Buffer.from(sanitizedLayout.substring(0, 20), 'utf-8').toString('hex');
+        console.log(`[Facturatech] Layout Start Hex: ${hexPreview}`);
+
+        const xmlBase64 = Buffer.from(sanitizedLayout, 'utf-8').toString('base64');
 
         // Log del XML antes de codificar para verificar formato
-        console.log('[Facturatech] XML Layout primeros 300 chars:', xmlLayout.substring(0, 300));
+        console.log('[Facturatech] XML Layout primeros 300 chars:', sanitizedLayout.substring(0, 300));
 
         const result = await this._ejecutarSoap('FtechAction.uploadInvoiceFileLayout', {
             username: this.user,
