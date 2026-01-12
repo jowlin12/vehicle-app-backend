@@ -16,6 +16,13 @@ class FacturatechService {
         this.password = this._hashPassword(process.env.FACTURATECH_PASSWORD || '');
         this.env = process.env.FACTURATECH_ENV || 'demo';
         this.endpoint = ENDPOINTS[this.env];
+
+        if (!this.user) {
+            console.warn('[Facturatech] ADVERTENCIA: FACTURATECH_USER no está configurado');
+        }
+        if (!process.env.FACTURATECH_PASSWORD) {
+            console.warn('[Facturatech] ADVERTENCIA: FACTURATECH_PASSWORD no está configurado');
+        }
     }
 
     /**
@@ -76,8 +83,7 @@ class FacturatechService {
   </ITE>`;
         }).join('\n');
 
-        return `<?xml version="1.0" encoding="UTF-8"?>
-<FACTURA>
+        return `<FACTURA>
   <ENC>
     <ENC_1>01</ENC_1>
     <ENC_2>${NUMERACION.prefijo}</ENC_2>
@@ -131,7 +137,7 @@ class FacturatechService {
     <TOT_4>${totales.total.toFixed(2)}</TOT_4>
   </TOT>
 ${itemsXml}
-</FACTURA>`;
+</FACTURA>`.trim();
     }
 
     /**
@@ -216,15 +222,26 @@ ${paramsXml}
             }
 
             // Si hay un fault, extraerlo
-            const fault = body['SOAP-ENV:Fault'] || body['soap:Fault'];
+            const fault = body['SOAP-ENV:Fault'] || body['soap:Fault'] || body['soapenv:Fault'];
             if (fault) {
                 return {
                     success: false,
-                    error: fault.faultstring || 'Error desconocido en SOAP'
+                    error: fault.faultstring || fault.reason || 'Error desconocido en SOAP'
                 };
             }
 
-            return { success: true, data: body };
+            // Si el método devolvió un objeto con error (negocio)
+            const actualResponse = methodResponse?.return || methodResponse;
+            if (actualResponse && (actualResponse.error || actualResponse.code >= 400)) {
+                return {
+                    success: false,
+                    error: actualResponse.error || `Error ${actualResponse.code}`,
+                    code: actualResponse.code,
+                    data: actualResponse
+                };
+            }
+
+            return { success: true, data: methodResponse };
         } catch (e) {
             console.error('[Facturatech] Error extrayendo respuesta:', e);
             return { success: false, error: e.message, raw: result };
@@ -249,13 +266,20 @@ ${paramsXml}
         });
 
         if (result.success && result.data) {
-            // Extraer transactionId de la respuesta
-            const transactionId = result.data.transaccionID ||
-                result.data.return?.transaccionID ||
-                result.data.return;
+            const data = result.data.return || result.data;
+
+            // Si hay un ID de transacción válido
+            if (data.transaccionID && data.transaccionID !== '0') {
+                return {
+                    success: true,
+                    transactionId: String(data.transaccionID)
+                };
+            }
+
             return {
-                success: true,
-                transactionId: transactionId
+                success: false,
+                error: data.error || 'No se obtuvo ID de transacción',
+                code: data.code
             };
         }
 

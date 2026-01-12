@@ -372,11 +372,13 @@ app.put('/api/workers/me/setup', async (req, res) => {
  * - Descarga el PDF preview
  * - Retorna el transactionId y URL del PDF
  */
+// Endpoint para generar preview de factura electrónica
 app.post('/api/e-invoice/generate-preview', async (req, res) => {
   try {
-    const { idFormato, cliente, items, manoDeObra } = req.body;
+    const { idFormato, cliente, items, manoDeObra, incluirIva = false } = req.body;
 
     console.log('[E-Invoice] Generando preview para formato:', idFormato);
+    console.log('[E-Invoice] Incluir IVA:', incluirIva);
 
     // Validaciones
     if (!idFormato) {
@@ -397,19 +399,28 @@ app.post('/api/e-invoice/generate-preview', async (req, res) => {
     console.log('[E-Invoice] Número de factura asignado:', numeroFactura);
 
     // Preparar items (agregar mano de obra si existe)
-    const itemsCompletos = [...items];
+    // Y aplicar IVA solo si se solicita
+    const porcentajeIva = incluirIva ? 19 : 0;
+
+    // Ajustar items recibidos
+    const itemsProcesados = items.map(item => ({
+      ...item,
+      porcentajeIva: porcentajeIva
+    }));
+
+    const itemsCompletos = [...itemsProcesados];
     if (manoDeObra && manoDeObra > 0) {
       itemsCompletos.push({
         codigo: 'MO001',
         descripcion: 'Mano de obra',
         cantidad: 1,
         precioUnitario: manoDeObra,
-        porcentajeIva: 19
+        porcentajeIva: porcentajeIva
       });
     }
 
     // Calcular totales
-    const totales = facturatechService.calcularTotales(itemsCompletos);
+    const totales = facturatechService.calcularTotales(itemsCompletos, porcentajeIva);
     console.log('[E-Invoice] Totales calculados:', totales);
 
     // Generar XML Layout
@@ -428,9 +439,10 @@ app.post('/api/e-invoice/generate-preview', async (req, res) => {
 
     if (!uploadResult.success) {
       console.error('[E-Invoice] Error al subir a Facturatech:', uploadResult.error);
-      return res.status(500).json({
-        error: 'Error al enviar a Facturatech',
-        details: uploadResult.error
+      return res.status(uploadResult.code === '409' ? 400 : 500).json({
+        error: 'Error en la estructura de la factura (Facturatech)',
+        details: uploadResult.error,
+        code: uploadResult.code
       });
     }
 
