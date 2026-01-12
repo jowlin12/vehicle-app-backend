@@ -8,6 +8,7 @@
 const crypto = require('crypto');
 const axios = require('axios');
 const xml2js = require('xml2js');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 const { EMISOR, ENDPOINTS, NUMERACION, TIPOS_DOCUMENTO_DIAN } = require('./facturatech-config');
 
 class FacturatechService {
@@ -17,11 +18,26 @@ class FacturatechService {
         this.env = process.env.FACTURATECH_ENV || 'demo';
         this.endpoint = ENDPOINTS[this.env];
 
+        // Configuración de proxy para evitar bloqueos de Cloudflare
+        this.proxyUrl = process.env.FACTURATECH_PROXY_URL || '';
+        this.proxyAgent = this.proxyUrl ? new HttpsProxyAgent(this.proxyUrl) : null;
+
+        // Configuración de Browserless (alternativa preferida)
+        this.browserlessToken = process.env.BROWSERLESS_TOKEN || '';
+        this.browserlessEndpoint = process.env.BROWSERLESS_ENDPOINT || 'https://production-sfo.browserless.io';
+
         if (!this.user) {
             console.warn('[Facturatech] ADVERTENCIA: FACTURATECH_USER no está configurado');
         }
         if (!process.env.FACTURATECH_PASSWORD) {
             console.warn('[Facturatech] ADVERTENCIA: FACTURATECH_PASSWORD no está configurado');
+        }
+        if (this.browserlessToken) {
+            console.log('[Facturatech] Browserless configurado - se usará para evitar bloqueos de Cloudflare');
+        } else if (this.proxyAgent) {
+            console.log('[Facturatech] Proxy configurado:', this.proxyUrl.replace(/:[^:@]+@/, ':****@'));
+        } else {
+            console.log('[Facturatech] Sin proxy/Browserless. Si hay errores 502, configure BROWSERLESS_TOKEN');
         }
     }
 
@@ -31,6 +47,57 @@ class FacturatechService {
     _hashPassword(password) {
         if (!password) return '';
         return crypto.createHash('sha256').update(password).digest('hex');
+    }
+
+    /**
+     * Ejecuta una petición HTTP a través de Browserless /function endpoint
+     * Esto permite hacer peticiones desde los servidores de Browserless, evitando bloqueos de WAF
+     */
+    async _ejecutarViaBrowserless(endpoint, envelope, headers) {
+        const functionCode = `
+export default async function ({ context }) {
+    const response = await fetch(context.endpoint, {
+        method: 'POST',
+        headers: context.headers,
+        body: context.body
+    });
+    const text = await response.text();
+    return {
+        data: {
+            status: response.status,
+            statusText: response.statusText,
+            body: text
+        },
+        type: "application/json"
+    };
+}`;
+
+        console.log('[Facturatech] Ejecutando petición a través de Browserless...');
+
+        const browserlessUrl = `${this.browserlessEndpoint}/function?token=${this.browserlessToken}`;
+
+        // Usar JSON API de Browserless para pasar contexto
+        const response = await axios.post(browserlessUrl, {
+            code: functionCode,
+            context: {
+                endpoint: endpoint,
+                headers: headers,
+                body: envelope
+            }
+        }, {
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            timeout: 120000
+        });
+
+        console.log('[Facturatech] Respuesta de Browserless recibida, status:', response.data?.status);
+
+        if (response.data && response.data.body) {
+            return response.data.body;
+        }
+
+        throw new Error('Browserless no devolvió respuesta válida: ' + JSON.stringify(response.data));
     }
 
     /**
@@ -222,16 +289,35 @@ class FacturatechService {
         const headers = headersVariants[(attempt - 1) % headersVariants.length];
 
         try {
-            const response = await axios.post(this.endpoint, envelope, {
-                headers,
-                timeout: 120000, // 2 minutos de timeout
-                // Deshabilitar compresión para evitar problemas con algunos WAF
-                decompress: attempt > 1 ? false : true,
-                // Forzar respuesta como texto para poder inspeccionarla
-                responseType: 'text'
-            });
+            let responseData;
 
-            const responseData = response.data;
+            // Prioridad 1: Usar Browserless si está configurado
+            if (this.browserlessToken) {
+                try {
+                    responseData = await this._ejecutarViaBrowserless(this.endpoint, envelope, headers);
+                } catch (browserlessError) {
+                    console.error('[Facturatech] Error con Browserless:', browserlessError.message);
+                    // Si falla Browserless, continuar con el método directo
+                    throw browserlessError;
+                }
+            } else {
+                // Método directo con axios (con o sin proxy)
+                const axiosConfig = {
+                    headers,
+                    timeout: 120000,
+                    decompress: attempt > 1 ? false : true,
+                    responseType: 'text'
+                };
+
+                if (this.proxyAgent) {
+                    axiosConfig.httpsAgent = this.proxyAgent;
+                    axiosConfig.proxy = false;
+                    console.log(`[Facturatech] Usando proxy para intento ${attempt}`);
+                }
+
+                const response = await axios.post(this.endpoint, envelope, axiosConfig);
+                responseData = response.data;
+            }
 
             // Log de respuesta - si es corta, mostrar completa para diagnóstico
             const previewLength = responseData.length < 1000 ? responseData.length : 500;
