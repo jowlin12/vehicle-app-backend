@@ -68,79 +68,12 @@ class FacturatechService {
             const valorIva = subtotal * (item.porcentajeIva / 100);
             const totalLinea = subtotal + valorIva;
 
-            return `  <ITE>
-    <ITE_1>${index + 1}</ITE_1>
-    <ITE_3>${this._escapeXml(item.codigo || `ITEM${index + 1}`)}</ITE_3>
-    <ITE_4>${item.cantidad}</ITE_4>
-    <ITE_5>EA</ITE_5>
-    <ITE_6>${item.precioUnitario.toFixed(2)}</ITE_6>
-    <ITE_7>${subtotal.toFixed(2)}</ITE_7>
-    <ITE_10>${this._escapeXml(item.descripcion)}</ITE_10>
-    <ITE_11>01</ITE_11>
-    <ITE_14>${item.porcentajeIva.toFixed(2)}</ITE_14>
-    <ITE_15>${valorIva.toFixed(2)}</ITE_15>
-    <ITE_18>${totalLinea.toFixed(2)}</ITE_18>
-  </ITE>`;
-        }).join('\n');
+            return `<ITE><ITE_1>${index + 1}</ITE_1><ITE_3>${this._escapeXml(item.codigo || `ITEM${index + 1}`)}</ITE_3><ITE_4>${item.cantidad}</ITE_4><ITE_5>EA</ITE_5><ITE_6>${item.precioUnitario.toFixed(2)}</ITE_6><ITE_7>${subtotal.toFixed(2)}</ITE_7><ITE_10>${this._escapeXml(item.descripcion)}</ITE_10><ITE_11>01</ITE_11><ITE_14>${item.porcentajeIva.toFixed(2)}</ITE_14><ITE_15>${valorIva.toFixed(2)}</ITE_15><ITE_18>${totalLinea.toFixed(2)}</ITE_18></ITE>`;
+        }).join('');
 
-        const layout = `<?xml version="1.0" encoding="UTF-8"?>
-<FACTURA>
-  <ENC>
-    <ENC_1>01</ENC_1>
-    <ENC_2>${NUMERACION.prefijo}</ENC_2>
-    <ENC_3>${numeroFactura}</ENC_3>
-    <ENC_4>${fechaActual}</ENC_4>
-    <ENC_5>${horaActual}</ENC_5>
-    <ENC_6>${fechaActual}</ENC_6>
-    <ENC_7>01</ENC_7>
-    <ENC_9>COP</ENC_9>
-    <ENC_10>10</ENC_10>
-    <ENC_16>${this._escapeXml(referencia)}</ENC_16>
-  </ENC>
-  <EMI>
-    <EMI_1>${EMISOR.tipoPersona}</EMI_1>
-    <EMI_2>${EMISOR.nit}</EMI_2>
-    <EMI_3>${EMISOR.dv}</EMI_3>
-    <EMI_6>${this._escapeXml(EMISOR.razonSocial)}</EMI_6>
-    <EMI_7>${this._escapeXml(EMISOR.nombreComercial)}</EMI_7>
-    <EMI_10>${this._escapeXml(EMISOR.direccion)}</EMI_10>
-    <EMI_11>${EMISOR.codigoCiudad}</EMI_11>
-    <EMI_12>${this._escapeXml(EMISOR.ciudad)}</EMI_12>
-    <EMI_13>${this._escapeXml(EMISOR.departamento)}</EMI_13>
-    <EMI_14>${EMISOR.codigoDepto}</EMI_14>
-    <EMI_15>${EMISOR.pais}</EMI_15>
-    <EMI_19>${EMISOR.telefono}</EMI_19>
-    <EMI_23>${EMISOR.responsabilidad}</EMI_23>
-    <EMI_24>${EMISOR.regimen}</EMI_24>
-  </EMI>
-  <ADQ>
-    <ADQ_1>${adquiriente.tipoPersona || '2'}</ADQ_1>
-    <ADQ_2>${adquiriente.numeroDocumento}</ADQ_2>
-    <ADQ_3>${adquiriente.dv || ''}</ADQ_3>
-    <ADQ_5>${tipoDocDian}</ADQ_5>
-    <ADQ_6>${this._escapeXml(adquiriente.razonSocial)}</ADQ_6>
-    <ADQ_7>${this._escapeXml(adquiriente.nombreComercial || adquiriente.razonSocial)}</ADQ_7>
-    <ADQ_10>${this._escapeXml(adquiriente.direccion)}</ADQ_10>
-    <ADQ_11>${adquiriente.codigoCiudad || '54001'}</ADQ_11>
-    <ADQ_12>${this._escapeXml(adquiriente.ciudad || 'Cúcuta')}</ADQ_12>
-    <ADQ_13>${this._escapeXml(adquiriente.departamento || 'Norte de Santander')}</ADQ_13>
-    <ADQ_14>${adquiriente.codigoDepto || '54'}</ADQ_14>
-    <ADQ_15>CO</ADQ_15>
-    <ADQ_19>${adquiriente.telefono || ''}</ADQ_19>
-    <ADQ_22>${adquiriente.email || ''}</ADQ_22>
-    <ADQ_23>${adquiriente.responsabilidad || 'R-99-PN'}</ADQ_23>
-    <ADQ_24>${adquiriente.regimen || '49'}</ADQ_24>
-  </ADQ>
-  <TOT>
-    <TOT_1>${totales.baseGravable.toFixed(2)}</TOT_1>
-    <TOT_2>01</TOT_2>
-    <TOT_3>${totales.iva.toFixed(2)}</TOT_3>
-    <TOT_4>${totales.total.toFixed(2)}</TOT_4>
-  </TOT>
-${itemsXml}
-</FACTURA>`;
+        const layout = `<?xml version="1.0" encoding="UTF-8"?><FACTURA><ENC><ENC_1>01</ENC_1><ENC_2>${NUMERACION.prefijo}</ENC_2><ENC_3>${numeroFactura}</ENC_3><ENC_4>${fechaActual}</ENC_4><ENC_5>${horaActual}</ENC_5><ENC_6>${fechaActual}</ENC_6><ENC_7>01</ENC_7><ENC_9>COP</ENC_9><ENC_10>10</ENC_10><ENC_16>${this._escapeXml(referencia)}</ENC_16></ENC><EMI><EMI_1>${EMISOR.tipoPersona}</EMI_1><EMI_2>${EMISOR.nit}</EMI_2><EMI_3>${EMISOR.dv}</EMI_3><EMI_6>${this._escapeXml(EMISOR.razonSocial)}</EMI_6><EMI_7>${this._escapeXml(EMISOR.nombreComercial)}</EMI_7><EMI_10>${this._escapeXml(EMISOR.direccion)}</EMI_10><EMI_11>${EMISOR.codigoCiudad}</EMI_11><EMI_12>${this._escapeXml(EMISOR.ciudad)}</EMI_12><EMI_13>${this._escapeXml(EMISOR.departamento)}</EMI_13><EMI_14>${EMISOR.codigoDepto}</EMI_14><EMI_15>${EMISOR.pais}</EMI_15><EMI_19>${EMISOR.telefono}</EMI_19><EMI_23>${EMISOR.responsabilidad}</EMI_23><EMI_24>${EMISOR.regimen}</EMI_24></EMI><ADQ><ADQ_1>${adquiriente.tipoPersona || '2'}</ADQ_1><ADQ_2>${adquiriente.numeroDocumento}</ADQ_2><ADQ_3>${adquiriente.dv || ''}</ADQ_3><ADQ_5>${tipoDocDian}</ADQ_5><ADQ_6>${this._escapeXml(adquiriente.razonSocial)}</ADQ_6><ADQ_7>${this._escapeXml(adquiriente.nombreComercial || adquiriente.razonSocial)}</ADQ_7><ADQ_10>${this._escapeXml(adquiriente.direccion)}</ADQ_10><ADQ_11>${adquiriente.codigoCiudad || '54001'}</ADQ_11><ADQ_12>${this._escapeXml(adquiriente.ciudad || 'Cúcuta')}</ADQ_12><ADQ_13>${this._escapeXml(adquiriente.departamento || 'Norte de Santander')}</ADQ_13><ADQ_14>${adquiriente.codigoDepto || '54'}</ADQ_14><ADQ_15>CO</ADQ_15><ADQ_19>${adquiriente.telefono || ''}</ADQ_19><ADQ_22>${adquiriente.email || ''}</ADQ_22><ADQ_23>${adquiriente.responsabilidad || 'R-99-PN'}</ADQ_23><ADQ_24>${adquiriente.regimen || '49'}</ADQ_24></ADQ><TOT><TOT_1>${totales.baseGravable.toFixed(2)}</TOT_1><TOT_2>01</TOT_2><TOT_3>${totales.iva.toFixed(2)}</TOT_3><TOT_4>${totales.total.toFixed(2)}</TOT_4></TOT>${itemsXml}</FACTURA>`;
 
-        return layout.trim();
+        return layout;
     }
 
     /**
@@ -170,6 +103,23 @@ ${paramsXml}
 
         console.log(`[Facturatech] Ejecutando método: ${method}`);
         console.log(`[Facturatech] Endpoint: ${this.endpoint}`);
+
+        // Validar credenciales antes de enviar
+        if (!this.user || !this.password) {
+            console.warn('[Facturatech] ¡PELIGRO! Credenciales vacías. La solicitud fallará.');
+        } else if (this.user.length < 8) {
+            console.warn(`[Facturatech] ¡ADVERTENCIA! El usuario '${this.user}' tiene ${this.user.length} dígitos. ¿Es correcto? (NIT suele tener 9 o 10 con DV, o 8-9 sin DV).`);
+        }
+
+        // Log parcial del payload para debug (sin revelar password completo)
+        if (params.file) {
+            try {
+                const sample = Buffer.from(params.file, 'base64').toString('utf-8').substring(0, 500);
+                console.log('[Facturatech] CHECK XML LAYOUT (Decoded Part):', sample);
+            } catch (err) {
+                console.error('Error decodificando sample de base64:', err);
+            }
+        }
 
         try {
             const response = await axios.post(this.endpoint, envelope, {
