@@ -1,10 +1,12 @@
 const express = require('express');
 const cors = require('cors');
-const { supabase } = require('./database.js'); 
+const { supabase } = require('./database.js');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const handlebars = require('handlebars');
+const FacturatechService = require('./facturatech-service.js');
+const { NUMERACION } = require('./facturatech-config.js');
 
 const app = express();
 app.use(cors());
@@ -119,7 +121,7 @@ app.post('/api/generate-invoice', async (req, res) => {
     // Generar filas de la tabla para repuestos y servicios
     let repuestos_html = '';
     if (repuestos && repuestos.length > 0) {
-        repuestos_html = repuestos.map(r => `
+      repuestos_html = repuestos.map(r => `
             <tr>
                 <td>${r.cantidad}</td>
                 <td>${r.descripcion}</td>
@@ -142,7 +144,7 @@ app.post('/api/generate-invoice', async (req, res) => {
         mano_obra_formateado: costos.mano_obra.toLocaleString('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }),
         total_formateado: costos.total.toLocaleString('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 })
       },
-      currentDate: new Date().toLocaleDateString('es-CO') 
+      currentDate: new Date().toLocaleDateString('es-CO')
     });
 
     // Usar la nueva API propia para convertir HTML a PDF y guardarlo en Google Drive
@@ -156,7 +158,7 @@ app.post('/api/generate-invoice', async (req, res) => {
           format: "A4",
           margin: {
             top: "20px",
-            right: "20px", 
+            right: "20px",
             bottom: "20px",
             left: "20px"
           }
@@ -171,12 +173,12 @@ app.post('/api/generate-invoice', async (req, res) => {
 
     // La nueva API devuelve la URL en una estructura anidada
     // Priorizar la URL de descarga directa para evitar problemas de formato
-    const driveUrl = response.data.data?.googleDrive?.directLink || 
-                     response.data.data?.googleDrive?.downloadLink ||
-                     response.data.data?.googleDrive?.viewLink || 
-                     response.data.url || 
-                     response.data.driveUrl || 
-                     response.data;
+    const driveUrl = response.data.data?.googleDrive?.directLink ||
+      response.data.data?.googleDrive?.downloadLink ||
+      response.data.data?.googleDrive?.viewLink ||
+      response.data.url ||
+      response.data.driveUrl ||
+      response.data;
 
     // Lógica para crear o actualizar la factura en la base de datos
     const { data: existingInvoice } = await supabase
@@ -189,7 +191,7 @@ app.post('/api/generate-invoice', async (req, res) => {
       // Si existe, actualiza la factura
       await supabase
         .from('facturas')
-        .update({ 
+        .update({
           precio_factura: costos.total,
           factura_pdf: driveUrl
         })
@@ -214,7 +216,7 @@ app.post('/api/generate-invoice', async (req, res) => {
       .update({ url_documento: driveUrl })
       .eq('clave_key', formato.clave_key);
 
-    res.status(200).json({ 
+    res.status(200).json({
       success: true,
       message: 'Factura generada exitosamente',
       data: {
@@ -274,11 +276,11 @@ app.post('/api/workers', async (req, res) => {
     // 3. Actualizar el perfil del usuario en la tabla 'profiles' con los detalles
     const { data: profileData, error: profileError } = await supabase
       .from('profiles')
-      .update({ 
+      .update({
         full_name: full_name,
         username: username,
         must_change_password: true // Forzar cambio de contraseña en el primer login
-       })
+      })
       .eq('id', userId)
       .select()
       .single();
@@ -354,6 +356,479 @@ app.put('/api/workers/me/setup', async (req, res) => {
   } catch (error) {
     console.error('Error inesperado en /api/workers/me/setup:', error);
     res.status(500).json({ error: 'Ocurrió un error inesperado en el servidor.' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FACTURACIÓN ELECTRÓNICA - Endpoints
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * POST /api/e-invoice/generate-preview
+ * 
+ * Genera una vista previa de la factura electrónica.
+ * - Genera el XML Layout
+ * - Lo envía a Facturatech
+ * - Descarga el PDF preview
+ * - Retorna el transactionId y URL del PDF
+ */
+app.post('/api/e-invoice/generate-preview', async (req, res) => {
+  try {
+    const { idFormato, cliente, items, manoDeObra } = req.body;
+
+    console.log('[E-Invoice] Generando preview para formato:', idFormato);
+
+    // Validaciones
+    if (!idFormato) {
+      return res.status(400).json({ error: 'idFormato es requerido' });
+    }
+    if (!cliente || !cliente.numeroDocumento || !cliente.razonSocial) {
+      return res.status(400).json({ error: 'Datos del cliente incompletos' });
+    }
+    if (!items || items.length === 0) {
+      return res.status(400).json({ error: 'Se requiere al menos un item' });
+    }
+
+    // Inicializar servicio
+    const facturatechService = new FacturatechService();
+
+    // Obtener siguiente número de factura
+    const numeroFactura = await facturatechService.obtenerSiguienteNumeroFactura(supabase);
+    console.log('[E-Invoice] Número de factura asignado:', numeroFactura);
+
+    // Preparar items (agregar mano de obra si existe)
+    const itemsCompletos = [...items];
+    if (manoDeObra && manoDeObra > 0) {
+      itemsCompletos.push({
+        codigo: 'MO001',
+        descripcion: 'Mano de obra',
+        cantidad: 1,
+        precioUnitario: manoDeObra,
+        porcentajeIva: 19
+      });
+    }
+
+    // Calcular totales
+    const totales = facturatechService.calcularTotales(itemsCompletos);
+    console.log('[E-Invoice] Totales calculados:', totales);
+
+    // Generar XML Layout
+    const xmlLayout = facturatechService.generarXmlLayout(
+      cliente,
+      itemsCompletos,
+      totales,
+      numeroFactura,
+      `Orden: ${idFormato}`
+    );
+
+    console.log('[E-Invoice] XML Layout generado, enviando a Facturatech...');
+
+    // Subir a Facturatech
+    const uploadResult = await facturatechService.uploadInvoiceFileLayout(xmlLayout);
+
+    if (!uploadResult.success) {
+      console.error('[E-Invoice] Error al subir a Facturatech:', uploadResult.error);
+      return res.status(500).json({
+        error: 'Error al enviar a Facturatech',
+        details: uploadResult.error
+      });
+    }
+
+    const transactionId = uploadResult.transactionId;
+    console.log('[E-Invoice] Factura subida, transactionId:', transactionId);
+
+    // Esperar un momento para que Facturatech procese
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    // Consultar estado
+    const statusResult = await facturatechService.documentStatusFile(transactionId);
+    console.log('[E-Invoice] Estado del documento:', statusResult);
+
+    // Intentar descargar PDF
+    let pdfUrl = null;
+    try {
+      const pdfResult = await facturatechService.downloadPDFFile(NUMERACION.prefijo, numeroFactura);
+      if (pdfResult.success && pdfResult.pdfBase64) {
+        // Subir PDF a almacenamiento (usando la API de PDF existente)
+        const pdfBuffer = Buffer.from(pdfResult.pdfBase64, 'base64');
+
+        // Guardar temporalmente y subir a Google Drive
+        const response = await axios.post('https://api-pdf-to-html-vercel.vercel.app/api/upload/base64', {
+          base64: pdfResult.pdfBase64,
+          filename: `FE-${NUMERACION.prefijo}${numeroFactura}.pdf`,
+          mimeType: 'application/pdf'
+        });
+
+        pdfUrl = response.data.data?.googleDrive?.directLink || response.data.url;
+        console.log('[E-Invoice] PDF subido a storage:', pdfUrl);
+      }
+    } catch (pdfError) {
+      console.error('[E-Invoice] Error descargando PDF:', pdfError.message);
+      // Continuar sin PDF por ahora
+    }
+
+    // Guardar registro preliminar en Supabase
+    const { data: facturaData, error: insertError } = await supabase
+      .from('facturas_electronicas')
+      .insert({
+        id_formato: idFormato,
+        transaction_id: transactionId,
+        prefijo: NUMERACION.prefijo,
+        numero_factura: numeroFactura.toString(),
+        estado: 'PREVIEW',
+        pdf_url: pdfUrl,
+        adq_tipo_doc: cliente.tipoDocumento,
+        adq_numero_doc: cliente.numeroDocumento,
+        adq_razon_social: cliente.razonSocial,
+        base_gravable: totales.baseGravable,
+        iva: totales.iva,
+        total: totales.total
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error('[E-Invoice] Error guardando en DB:', insertError);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Vista previa generada exitosamente',
+      data: {
+        transactionId,
+        numeroFactura: `${NUMERACION.prefijo}${numeroFactura}`,
+        pdfUrl,
+        status: statusResult.status || 'procesando',
+        totales,
+        facturaId: facturaData?.id
+      }
+    });
+
+  } catch (error) {
+    console.error('[E-Invoice] Error general:', error);
+    res.status(500).json({
+      error: 'Error al generar vista previa de factura electrónica',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/e-invoice/confirm
+ * 
+ * Confirma una factura electrónica y obtiene los recursos finales (CUFE, PDF firmado)
+ */
+app.post('/api/e-invoice/confirm', async (req, res) => {
+  try {
+    const { transactionId } = req.body;
+
+    if (!transactionId) {
+      return res.status(400).json({ error: 'transactionId es requerido' });
+    }
+
+    console.log('[E-Invoice] Confirmando factura:', transactionId);
+
+    // Buscar la factura en la base de datos
+    const { data: factura, error: fetchError } = await supabase
+      .from('facturas_electronicas')
+      .select('*')
+      .eq('transaction_id', transactionId)
+      .single();
+
+    if (fetchError || !factura) {
+      return res.status(404).json({ error: 'Factura no encontrada' });
+    }
+
+    const facturatechService = new FacturatechService();
+
+    // Consultar estado actual
+    const statusResult = await facturatechService.documentStatusFile(transactionId);
+    console.log('[E-Invoice] Estado actual:', statusResult);
+
+    // Obtener CUFE
+    let cufe = null;
+    try {
+      const cufeResult = await facturatechService.getCUFEFile(
+        factura.prefijo,
+        factura.numero_factura
+      );
+      if (cufeResult.success) {
+        cufe = cufeResult.cufe;
+        console.log('[E-Invoice] CUFE obtenido:', cufe);
+      }
+    } catch (cufeError) {
+      console.error('[E-Invoice] Error obteniendo CUFE:', cufeError.message);
+    }
+
+    // Obtener PDF firmado
+    let pdfUrl = factura.pdf_url;
+    try {
+      const pdfResult = await facturatechService.downloadPDFFile(
+        factura.prefijo,
+        factura.numero_factura
+      );
+      if (pdfResult.success && pdfResult.pdfBase64) {
+        // Subir a storage
+        const response = await axios.post('https://api-pdf-to-html-vercel.vercel.app/api/upload/base64', {
+          base64: pdfResult.pdfBase64,
+          filename: `FE-${factura.prefijo}${factura.numero_factura}-FIRMADO.pdf`,
+          mimeType: 'application/pdf'
+        });
+        pdfUrl = response.data.data?.googleDrive?.directLink || response.data.url || pdfUrl;
+        console.log('[E-Invoice] PDF firmado subido:', pdfUrl);
+      }
+    } catch (pdfError) {
+      console.error('[E-Invoice] Error descargando PDF firmado:', pdfError.message);
+    }
+
+    // Actualizar registro en Supabase
+    const { data: updatedFactura, error: updateError } = await supabase
+      .from('facturas_electronicas')
+      .update({
+        estado: cufe ? 'VALIDADA' : 'PROCESANDO',
+        cufe: cufe,
+        pdf_url: pdfUrl,
+        response_code: statusResult.status,
+        response_message: statusResult.message
+      })
+      .eq('id', factura.id)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error('[E-Invoice] Error actualizando DB:', updateError);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: cufe ? 'Factura electrónica validada exitosamente' : 'Factura en proceso de validación',
+      data: {
+        id: updatedFactura?.id || factura.id,
+        transactionId,
+        numeroFactura: `${factura.prefijo}${factura.numero_factura}`,
+        cufe,
+        pdfUrl,
+        estado: cufe ? 'VALIDADA' : 'PROCESANDO',
+        totales: {
+          baseGravable: factura.base_gravable,
+          iva: factura.iva,
+          total: factura.total
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('[E-Invoice] Error en confirmación:', error);
+    res.status(500).json({
+      error: 'Error al confirmar factura electrónica',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/e-invoice/status/:transactionId
+ * 
+ * Consulta el estado de una factura electrónica
+ */
+app.get('/api/e-invoice/status/:transactionId', async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+
+    // Buscar en base de datos
+    const { data: factura, error } = await supabase
+      .from('facturas_electronicas')
+      .select('*')
+      .eq('transaction_id', transactionId)
+      .single();
+
+    if (error || !factura) {
+      return res.status(404).json({ error: 'Factura no encontrada' });
+    }
+
+    // Si no está validada, consultar a Facturatech
+    if (factura.estado !== 'VALIDADA') {
+      const facturatechService = new FacturatechService();
+      const statusResult = await facturatechService.documentStatusFile(transactionId);
+
+      // Actualizar estado si cambió
+      if (statusResult.status && statusResult.status !== factura.response_code) {
+        await supabase
+          .from('facturas_electronicas')
+          .update({
+            response_code: statusResult.status,
+            response_message: statusResult.message
+          })
+          .eq('id', factura.id);
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      data: factura
+    });
+
+  } catch (error) {
+    console.error('[E-Invoice] Error consultando estado:', error);
+    res.status(500).json({ error: 'Error al consultar estado' });
+  }
+});
+
+/**
+ * GET /api/e-invoice/list
+ * 
+ * Lista las facturas electrónicas emitidas
+ */
+app.get('/api/e-invoice/list', async (req, res) => {
+  try {
+    const { estado, busqueda, limit = 50 } = req.query;
+
+    let query = supabase
+      .from('facturas_electronicas')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(parseInt(limit));
+
+    if (estado) {
+      query = query.eq('estado', estado);
+    }
+
+    if (busqueda) {
+      query = query.or(`adq_razon_social.ilike.%${busqueda}%,numero_factura.ilike.%${busqueda}%,adq_numero_doc.ilike.%${busqueda}%`);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      throw error;
+    }
+
+    res.status(200).json({
+      success: true,
+      data: data || [],
+      count: data?.length || 0
+    });
+
+  } catch (error) {
+    console.error('[E-Invoice] Error listando facturas:', error);
+    res.status(500).json({ error: 'Error al listar facturas electrónicas' });
+  }
+});
+
+/**
+ * GET /api/e-invoice/download/:type/:prefix/:folio
+ * 
+ * Descarga recursos de una factura (PDF, XML, QR)
+ */
+app.get('/api/e-invoice/download/:type/:prefix/:folio', async (req, res) => {
+  try {
+    const { type, prefix, folio } = req.params;
+
+    const facturatechService = new FacturatechService();
+    let result;
+    let filename;
+    let contentType;
+
+    switch (type.toLowerCase()) {
+      case 'pdf':
+        result = await facturatechService.downloadPDFFile(prefix, folio);
+        filename = `FE-${prefix}${folio}.pdf`;
+        contentType = 'application/pdf';
+        break;
+      case 'xml':
+        result = await facturatechService.downloadXMLFile(prefix, folio);
+        filename = `FE-${prefix}${folio}.xml`;
+        contentType = 'application/xml';
+        break;
+      case 'qr':
+        result = await facturatechService.getQRImageFile(prefix, folio);
+        filename = `QR-${prefix}${folio}.png`;
+        contentType = 'image/png';
+        break;
+      default:
+        return res.status(400).json({ error: 'Tipo de descarga no válido. Use: pdf, xml o qr' });
+    }
+
+    if (!result.success) {
+      return res.status(404).json({ error: result.error || 'Recurso no encontrado' });
+    }
+
+    const base64Data = result.pdfBase64 || result.xmlBase64 || result.qrImageBase64;
+    if (!base64Data) {
+      return res.status(404).json({ error: 'No se pudo obtener el recurso' });
+    }
+
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
+
+  } catch (error) {
+    console.error('[E-Invoice] Error en descarga:', error);
+    res.status(500).json({ error: 'Error al descargar recurso' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CLIENTES FISCALES - Endpoints
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /api/clientes-fiscales/buscar
+ * 
+ * Busca clientes fiscales por documento o nombre
+ */
+app.get('/api/clientes-fiscales/buscar', async (req, res) => {
+  try {
+    const { q } = req.query;
+
+    if (!q || q.length < 2) {
+      return res.status(200).json({ success: true, data: [] });
+    }
+
+    const { data, error } = await supabase
+      .from('clientes_fiscales')
+      .select('*')
+      .or(`numero_documento.ilike.%${q}%,razon_social.ilike.%${q}%`)
+      .limit(20);
+
+    if (error) throw error;
+
+    res.status(200).json({ success: true, data: data || [] });
+
+  } catch (error) {
+    console.error('[Clientes] Error en búsqueda:', error);
+    res.status(500).json({ error: 'Error al buscar clientes' });
+  }
+});
+
+/**
+ * POST /api/clientes-fiscales
+ * 
+ * Crea o actualiza un cliente fiscal
+ */
+app.post('/api/clientes-fiscales', async (req, res) => {
+  try {
+    const cliente = req.body;
+
+    if (!cliente.numero_documento || !cliente.razon_social) {
+      return res.status(400).json({ error: 'Datos del cliente incompletos' });
+    }
+
+    const { data, error } = await supabase
+      .from('clientes_fiscales')
+      .upsert(cliente, { onConflict: 'numero_documento' })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.status(200).json({ success: true, data });
+
+  } catch (error) {
+    console.error('[Clientes] Error guardando cliente:', error);
+    res.status(500).json({ error: 'Error al guardar cliente' });
   }
 });
 

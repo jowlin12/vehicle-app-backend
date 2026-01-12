@@ -1,0 +1,482 @@
+/**
+ * Servicio de Facturatech para Facturación Electrónica
+ * 
+ * Este servicio maneja toda la comunicación SOAP con el webservice
+ * de Facturatech para la emisión de facturas electrónicas.
+ */
+
+const crypto = require('crypto');
+const axios = require('axios');
+const xml2js = require('xml2js');
+const { EMISOR, ENDPOINTS, NUMERACION, TIPOS_DOCUMENTO_DIAN } = require('./facturatech-config');
+
+class FacturatechService {
+    constructor() {
+        this.user = process.env.FACTURATECH_USER || '';
+        this.password = this._hashPassword(process.env.FACTURATECH_PASSWORD || '');
+        this.env = process.env.FACTURATECH_ENV || 'demo';
+        this.endpoint = ENDPOINTS[this.env];
+    }
+
+    /**
+     * Hash SHA-256 de la contraseña (requerido por Facturatech)
+     */
+    _hashPassword(password) {
+        if (!password) return '';
+        return crypto.createHash('sha256').update(password).digest('hex');
+    }
+
+    /**
+     * Escapa caracteres especiales para XML
+     */
+    _escapeXml(text) {
+        if (!text) return '';
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&apos;');
+    }
+
+    /**
+     * Genera el XML Layout completo para una factura
+     * 
+     * @param {Object} adquiriente - Datos del cliente/adquiriente
+     * @param {Array} items - Lista de items (repuestos/servicios)
+     * @param {Object} totales - Totales de la factura
+     * @param {string} numeroFactura - Número de la factura
+     * @param {string} referencia - Referencia (ej: número de orden de trabajo)
+     */
+    generarXmlLayout(adquiriente, items, totales, numeroFactura, referencia = '') {
+        const fechaActual = new Date().toISOString().split('T')[0];
+        const horaActual = new Date().toTimeString().split(' ')[0];
+
+        // Obtener código DIAN del tipo de documento
+        const tipoDocDian = TIPOS_DOCUMENTO_DIAN[adquiriente.tipoDocumento] || '13';
+
+        // Generar XML de items
+        const itemsXml = items.map((item, index) => {
+            const subtotal = item.cantidad * item.precioUnitario;
+            const valorIva = subtotal * (item.porcentajeIva / 100);
+            const totalLinea = subtotal + valorIva;
+
+            return `  <ITE>
+    <ITE_1>${index + 1}</ITE_1>
+    <ITE_3>${this._escapeXml(item.codigo || `ITEM${index + 1}`)}</ITE_3>
+    <ITE_4>${item.cantidad}</ITE_4>
+    <ITE_5>EA</ITE_5>
+    <ITE_6>${item.precioUnitario.toFixed(2)}</ITE_6>
+    <ITE_7>${subtotal.toFixed(2)}</ITE_7>
+    <ITE_10>${this._escapeXml(item.descripcion)}</ITE_10>
+    <ITE_11>01</ITE_11>
+    <ITE_14>${item.porcentajeIva.toFixed(2)}</ITE_14>
+    <ITE_15>${valorIva.toFixed(2)}</ITE_15>
+    <ITE_18>${totalLinea.toFixed(2)}</ITE_18>
+  </ITE>`;
+        }).join('\n');
+
+        return `<?xml version="1.0" encoding="UTF-8"?>
+<FACTURA>
+  <ENC>
+    <ENC_1>01</ENC_1>
+    <ENC_2>${NUMERACION.prefijo}</ENC_2>
+    <ENC_3>${numeroFactura}</ENC_3>
+    <ENC_4>${fechaActual}</ENC_4>
+    <ENC_5>${horaActual}</ENC_5>
+    <ENC_6>${fechaActual}</ENC_6>
+    <ENC_7>01</ENC_7>
+    <ENC_9>COP</ENC_9>
+    <ENC_10>10</ENC_10>
+    <ENC_16>${this._escapeXml(referencia)}</ENC_16>
+  </ENC>
+  <EMI>
+    <EMI_1>${EMISOR.tipoPersona}</EMI_1>
+    <EMI_2>${EMISOR.nit}</EMI_2>
+    <EMI_3>${EMISOR.dv}</EMI_3>
+    <EMI_6>${this._escapeXml(EMISOR.razonSocial)}</EMI_6>
+    <EMI_7>${this._escapeXml(EMISOR.nombreComercial)}</EMI_7>
+    <EMI_10>${this._escapeXml(EMISOR.direccion)}</EMI_10>
+    <EMI_11>${EMISOR.codigoCiudad}</EMI_11>
+    <EMI_12>${this._escapeXml(EMISOR.ciudad)}</EMI_12>
+    <EMI_13>${this._escapeXml(EMISOR.departamento)}</EMI_13>
+    <EMI_14>${EMISOR.codigoDepto}</EMI_14>
+    <EMI_15>${EMISOR.pais}</EMI_15>
+    <EMI_19>${EMISOR.telefono}</EMI_19>
+    <EMI_23>${EMISOR.responsabilidad}</EMI_23>
+    <EMI_24>${EMISOR.regimen}</EMI_24>
+  </EMI>
+  <ADQ>
+    <ADQ_1>${adquiriente.tipoPersona || '2'}</ADQ_1>
+    <ADQ_2>${adquiriente.numeroDocumento}</ADQ_2>
+    <ADQ_3>${adquiriente.dv || ''}</ADQ_3>
+    <ADQ_5>${tipoDocDian}</ADQ_5>
+    <ADQ_6>${this._escapeXml(adquiriente.razonSocial)}</ADQ_6>
+    <ADQ_7>${this._escapeXml(adquiriente.nombreComercial || adquiriente.razonSocial)}</ADQ_7>
+    <ADQ_10>${this._escapeXml(adquiriente.direccion)}</ADQ_10>
+    <ADQ_11>${adquiriente.codigoCiudad || '54001'}</ADQ_11>
+    <ADQ_12>${this._escapeXml(adquiriente.ciudad || 'Cúcuta')}</ADQ_12>
+    <ADQ_13>${this._escapeXml(adquiriente.departamento || 'Norte de Santander')}</ADQ_13>
+    <ADQ_14>${adquiriente.codigoDepto || '54'}</ADQ_14>
+    <ADQ_15>CO</ADQ_15>
+    <ADQ_19>${adquiriente.telefono || ''}</ADQ_19>
+    <ADQ_22>${adquiriente.email || ''}</ADQ_22>
+    <ADQ_23>${adquiriente.responsabilidad || 'R-99-PN'}</ADQ_23>
+    <ADQ_24>${adquiriente.regimen || '49'}</ADQ_24>
+  </ADQ>
+  <TOT>
+    <TOT_1>${totales.baseGravable.toFixed(2)}</TOT_1>
+    <TOT_2>01</TOT_2>
+    <TOT_3>${totales.iva.toFixed(2)}</TOT_3>
+    <TOT_4>${totales.total.toFixed(2)}</TOT_4>
+  </TOT>
+${itemsXml}
+</FACTURA>`;
+    }
+
+    /**
+     * Crea el envelope SOAP para una llamada al webservice
+     */
+    _crearSoapEnvelope(method, params) {
+        const paramsXml = Object.entries(params)
+            .map(([key, value]) => `      <${key}>${this._escapeXml(value)}</${key}>`)
+            .join('\n');
+
+        return `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" 
+                  xmlns:urn="urn:FacturaTech">
+  <soapenv:Body>
+    <urn:${method}>
+${paramsXml}
+    </urn:${method}>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+    }
+
+    /**
+     * Ejecuta una llamada SOAP al webservice
+     */
+    async _ejecutarSoap(method, params) {
+        const envelope = this._crearSoapEnvelope(method, params);
+
+        console.log(`[Facturatech] Ejecutando método: ${method}`);
+        console.log(`[Facturatech] Endpoint: ${this.endpoint}`);
+
+        try {
+            const response = await axios.post(this.endpoint, envelope, {
+                headers: {
+                    'Content-Type': 'text/xml; charset=utf-8',
+                    'SOAPAction': `urn:FacturaTech#${method}`
+                },
+                timeout: 120000 // 2 minutos de timeout
+            });
+
+            // Parsear respuesta XML
+            const parser = new xml2js.Parser({
+                explicitArray: false,
+                ignoreAttrs: true
+            });
+
+            const result = await parser.parseStringPromise(response.data);
+            console.log(`[Facturatech] Respuesta recibida para ${method}`);
+
+            return this._extraerRespuesta(result, method);
+        } catch (error) {
+            console.error(`[Facturatech] Error en ${method}:`, error.message);
+            if (error.response) {
+                console.error('[Facturatech] Response data:', error.response.data);
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * Extrae la respuesta relevante del XML parseado
+     */
+    _extraerRespuesta(result, method) {
+        try {
+            // Navegar por la estructura del SOAP response
+            const body = result['SOAP-ENV:Envelope']?.['SOAP-ENV:Body'] ||
+                result['soap:Envelope']?.['soap:Body'] ||
+                result['soapenv:Envelope']?.['soapenv:Body'];
+
+            if (!body) {
+                console.log('[Facturatech] Estructura de respuesta:', JSON.stringify(result, null, 2));
+                return result;
+            }
+
+            // Buscar la respuesta del método
+            const methodResponse = body[`${method}Response`] || body[`ns1:${method}Response`];
+
+            if (methodResponse) {
+                return {
+                    success: true,
+                    data: methodResponse
+                };
+            }
+
+            // Si hay un fault, extraerlo
+            const fault = body['SOAP-ENV:Fault'] || body['soap:Fault'];
+            if (fault) {
+                return {
+                    success: false,
+                    error: fault.faultstring || 'Error desconocido en SOAP'
+                };
+            }
+
+            return { success: true, data: body };
+        } catch (e) {
+            console.error('[Facturatech] Error extrayendo respuesta:', e);
+            return { success: false, error: e.message, raw: result };
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MÉTODOS PÚBLICOS DEL WEBSERVICE
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Sube una factura en formato Layout a Facturatech
+     * @returns {Promise<{success: boolean, transactionId?: string, error?: string}>}
+     */
+    async uploadInvoiceFileLayout(xmlLayout) {
+        const xmlBase64 = Buffer.from(xmlLayout, 'utf-8').toString('base64');
+
+        const result = await this._ejecutarSoap('FtechAction.uploadInvoiceFileLayout', {
+            username: this.user,
+            password: this.password,
+            file: xmlBase64
+        });
+
+        if (result.success && result.data) {
+            // Extraer transactionId de la respuesta
+            const transactionId = result.data.transaccionID ||
+                result.data.return?.transaccionID ||
+                result.data.return;
+            return {
+                success: true,
+                transactionId: transactionId
+            };
+        }
+
+        return {
+            success: false,
+            error: result.error || 'Error al subir factura'
+        };
+    }
+
+    /**
+     * Consulta el estado de un documento
+     * @returns {Promise<{success: boolean, status?: string, message?: string}>}
+     */
+    async documentStatusFile(transactionId) {
+        const result = await this._ejecutarSoap('FtechAction.documentStatusFile', {
+            username: this.user,
+            password: this.password,
+            transaccionID: transactionId
+        });
+
+        if (result.success && result.data) {
+            return {
+                success: true,
+                status: result.data.status || result.data.return?.status,
+                message: result.data.message || result.data.return?.message,
+                data: result.data
+            };
+        }
+
+        return {
+            success: false,
+            error: result.error || 'Error al consultar estado'
+        };
+    }
+
+    /**
+     * Descarga el PDF de una factura
+     * @returns {Promise<{success: boolean, pdfBase64?: string}>}
+     */
+    async downloadPDFFile(prefijo, folio) {
+        const result = await this._ejecutarSoap('FtechAction.downloadPDFFile', {
+            username: this.user,
+            password: this.password,
+            prefijo: prefijo,
+            folio: folio
+        });
+
+        if (result.success && result.data) {
+            const pdfBase64 = result.data.return || result.data.resourceData;
+            return {
+                success: true,
+                pdfBase64: pdfBase64
+            };
+        }
+
+        return {
+            success: false,
+            error: result.error || 'Error al descargar PDF'
+        };
+    }
+
+    /**
+     * Descarga el XML firmado de una factura
+     * @returns {Promise<{success: boolean, xmlBase64?: string}>}
+     */
+    async downloadXMLFile(prefijo, folio) {
+        const result = await this._ejecutarSoap('FtechAction.downloadXMLFile', {
+            username: this.user,
+            password: this.password,
+            prefijo: prefijo,
+            folio: folio
+        });
+
+        if (result.success && result.data) {
+            const xmlBase64 = result.data.return || result.data.resourceData;
+            return {
+                success: true,
+                xmlBase64: xmlBase64
+            };
+        }
+
+        return {
+            success: false,
+            error: result.error || 'Error al descargar XML'
+        };
+    }
+
+    /**
+     * Obtiene el CUFE de una factura
+     * @returns {Promise<{success: boolean, cufe?: string}>}
+     */
+    async getCUFEFile(prefijo, folio) {
+        const result = await this._ejecutarSoap('FtechAction.getCUFEFile', {
+            username: this.user,
+            password: this.password,
+            prefijo: prefijo,
+            folio: folio
+        });
+
+        if (result.success && result.data) {
+            const cufe = result.data.return || result.data.resourceData;
+            return {
+                success: true,
+                cufe: cufe
+            };
+        }
+
+        return {
+            success: false,
+            error: result.error || 'Error al obtener CUFE'
+        };
+    }
+
+    /**
+     * Obtiene los datos del código QR de una factura
+     * @returns {Promise<{success: boolean, qrData?: string}>}
+     */
+    async getQRFile(prefijo, folio) {
+        const result = await this._ejecutarSoap('FtechAction.getQRFile', {
+            username: this.user,
+            password: this.password,
+            prefijo: prefijo,
+            folio: folio
+        });
+
+        if (result.success && result.data) {
+            const qrData = result.data.return || result.data.resourceData;
+            return {
+                success: true,
+                qrData: qrData
+            };
+        }
+
+        return {
+            success: false,
+            error: result.error || 'Error al obtener QR'
+        };
+    }
+
+    /**
+     * Obtiene la imagen del código QR de una factura
+     * @returns {Promise<{success: boolean, qrImageBase64?: string}>}
+     */
+    async getQRImageFile(prefijo, folio) {
+        const result = await this._ejecutarSoap('FtechAction.getQRImageFile', {
+            username: this.user,
+            password: this.password,
+            prefijo: prefijo,
+            folio: folio
+        });
+
+        if (result.success && result.data) {
+            const qrImage = result.data.return || result.data.resourceData;
+            return {
+                success: true,
+                qrImageBase64: qrImage
+            };
+        }
+
+        return {
+            success: false,
+            error: result.error || 'Error al obtener imagen QR'
+        };
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MÉTODOS DE UTILIDAD
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Obtiene el siguiente número de factura disponible
+     * (En producción, esto debería consultarse de la base de datos)
+     */
+    async obtenerSiguienteNumeroFactura(supabase) {
+        try {
+            // Consultar el último número usado
+            const { data, error } = await supabase
+                .from('facturas_electronicas')
+                .select('numero_factura')
+                .eq('prefijo', NUMERACION.prefijo)
+                .order('numero_factura', { ascending: false })
+                .limit(1);
+
+            if (error) throw error;
+
+            if (data && data.length > 0) {
+                const ultimoNumero = parseInt(data[0].numero_factura);
+                return ultimoNumero + 1;
+            }
+
+            // Si no hay facturas, empezar desde el rango inicial
+            return NUMERACION.rangoDesde;
+        } catch (e) {
+            console.error('[Facturatech] Error obteniendo siguiente número:', e);
+            // Fallback: usar timestamp
+            return Date.now() % 1000000;
+        }
+    }
+
+    /**
+     * Calcula los totales de una factura a partir de los items
+     */
+    calcularTotales(items, porcentajeIvaDefault = 19) {
+        let baseGravable = 0;
+        let iva = 0;
+
+        items.forEach(item => {
+            const subtotal = item.cantidad * item.precioUnitario;
+            const porcentajeIva = item.porcentajeIva ?? porcentajeIvaDefault;
+            const valorIva = subtotal * (porcentajeIva / 100);
+
+            baseGravable += subtotal;
+            iva += valorIva;
+        });
+
+        return {
+            baseGravable,
+            iva,
+            total: baseGravable + iva
+        };
+    }
+}
+
+module.exports = FacturatechService;
