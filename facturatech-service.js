@@ -147,8 +147,35 @@ class FacturatechService {
                 headers,
                 timeout: 120000, // 2 minutos de timeout
                 // Deshabilitar compresión para evitar problemas con algunos WAF
-                decompress: attempt > 1 ? false : true
+                decompress: attempt > 1 ? false : true,
+                // Forzar respuesta como texto para poder inspeccionarla
+                responseType: 'text'
             });
+
+            const responseData = response.data;
+
+            // Log primeros 500 caracteres de la respuesta para diagnóstico
+            console.log(`[Facturatech] Response preview (${method}):`,
+                typeof responseData === 'string' ? responseData.substring(0, 500) : JSON.stringify(responseData).substring(0, 500));
+
+            // Validar que la respuesta sea XML antes de parsear
+            if (typeof responseData !== 'string' || !responseData.trim().startsWith('<?xml') && !responseData.trim().startsWith('<')) {
+                console.error('[Facturatech] Respuesta no es XML válido. Posible error de Cloudflare/WAF.');
+                console.error('[Facturatech] Contenido recibido:', responseData);
+
+                // Si no es XML y hay intentos, reintentar
+                if (attempt < maxAttempts) {
+                    const delay = Math.pow(2, attempt) * 1000;
+                    console.log(`[Facturatech] Reintentando en ${delay / 1000}s...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    return this._ejecutarSoap(method, params, attempt + 1);
+                }
+
+                throw new Error('Respuesta de Facturatech no es XML válido. Posible bloqueo de Cloudflare.');
+            }
+
+            // Limpiar BOM y caracteres invisibles al inicio
+            const cleanedData = responseData.replace(/^\uFEFF/, '').trim();
 
             // Parsear respuesta XML
             const parser = new xml2js.Parser({
@@ -156,8 +183,8 @@ class FacturatechService {
                 ignoreAttrs: true
             });
 
-            const result = await parser.parseStringPromise(response.data);
-            console.log(`[Facturatech] Respuesta recibida para ${method}`);
+            const result = await parser.parseStringPromise(cleanedData);
+            console.log(`[Facturatech] Respuesta XML parseada correctamente para ${method}`);
 
             return this._extraerRespuesta(result, method);
         } catch (error) {
@@ -167,6 +194,14 @@ class FacturatechService {
             if (error.response && [502, 503, 504].includes(error.response.status) && attempt < maxAttempts) {
                 const delay = Math.pow(2, attempt) * 1000; // Backoff exponencial: 2s, 4s, 8s
                 console.log(`[Facturatech] Reintentando en ${delay / 1000}s con headers alternativos...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                return this._ejecutarSoap(method, params, attempt + 1);
+            }
+
+            // Si es error de parsing XML y aún hay intentos, reintentar
+            if (error.message && error.message.includes('Non-whitespace') && attempt < maxAttempts) {
+                const delay = Math.pow(2, attempt) * 1000;
+                console.log(`[Facturatech] Error de parsing XML, reintentando en ${delay / 1000}s...`);
                 await new Promise(resolve => setTimeout(resolve, delay));
                 return this._ejecutarSoap(method, params, attempt + 1);
             }
