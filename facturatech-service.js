@@ -364,7 +364,7 @@ class FacturatechService {
         const result = await this._ejecutarSoap('FtechAction.uploadInvoiceFileLayout', {
             username: this.user,
             password: this.password,
-            file: xmlBase64
+            layout: xmlBase64  // Cambiado de 'file' a 'layout' según el manual
         });
 
         // LOG DETALLADO de la respuesta completa
