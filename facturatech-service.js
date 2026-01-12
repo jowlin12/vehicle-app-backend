@@ -81,18 +81,10 @@ class FacturatechService {
      */
     _crearSoapEnvelope(method, params) {
         const paramsXml = Object.entries(params)
-            .map(([key, value]) => `      <${key}>${this._escapeXml(value)}</${key}>`)
-            .join('\n');
+            .map(([key, value]) => `<${key}>${this._escapeXml(value)}</${key}>`)
+            .join('');
 
-        return `<?xml version="1.0" encoding="UTF-8"?>
-<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" 
-                  xmlns:urn="urn:FacturaTech">
-  <soapenv:Body>
-    <urn:${method}>
-${paramsXml}
-    </urn:${method}>
-  </soapenv:Body>
-</soapenv:Envelope>`;
+        return `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="urn:FacturaTech"><soapenv:Body><urn:${method}>${paramsXml}</urn:${method}></soapenv:Body></soapenv:Envelope>`;
     }
 
     /**
@@ -125,7 +117,10 @@ ${paramsXml}
             const response = await axios.post(this.endpoint, envelope, {
                 headers: {
                     'Content-Type': 'text/xml; charset=utf-8',
-                    'SOAPAction': `urn:FacturaTech#${method}`
+                    'SOAPAction': `urn:FacturaTech#${method}`,
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/xml',
+                    'Connection': 'keep-alive'
                 },
                 timeout: 120000 // 2 minutos de timeout
             });
