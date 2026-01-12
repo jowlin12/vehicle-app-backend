@@ -83,7 +83,8 @@ class FacturatechService {
   </ITE>`;
         }).join('\n');
 
-        return `<FACTURA>
+        const layout = `<?xml version="1.0" encoding="UTF-8"?>
+<FACTURA>
   <ENC>
     <ENC_1>01</ENC_1>
     <ENC_2>${NUMERACION.prefijo}</ENC_2>
@@ -137,7 +138,9 @@ class FacturatechService {
     <TOT_4>${totales.total.toFixed(2)}</TOT_4>
   </TOT>
 ${itemsXml}
-</FACTURA>`.trim();
+</FACTURA>`;
+
+        return layout.trim();
     }
 
     /**
@@ -215,6 +218,18 @@ ${paramsXml}
             const methodResponse = body[`${method}Response`] || body[`ns1:${method}Response`];
 
             if (methodResponse) {
+                const actualResponse = methodResponse.return || methodResponse;
+
+                // Si el método devolvió un objeto con error (negocio)
+                if (actualResponse && (actualResponse.error || (actualResponse.code && parseInt(actualResponse.code) >= 400))) {
+                    return {
+                        success: false,
+                        error: actualResponse.error || `Error ${actualResponse.code}`,
+                        code: String(actualResponse.code),
+                        data: actualResponse
+                    };
+                }
+
                 return {
                     success: true,
                     data: methodResponse
@@ -222,7 +237,7 @@ ${paramsXml}
             }
 
             // Si hay un fault, extraerlo
-            const fault = body['SOAP-ENV:Fault'] || body['soap:Fault'] || body['soapenv:Fault'];
+            const fault = body['SOAP-ENV:Fault'] || body['soap:Fault'] || body['soapenv:Fault'] || body['Fault'];
             if (fault) {
                 return {
                     success: false,
@@ -230,18 +245,7 @@ ${paramsXml}
                 };
             }
 
-            // Si el método devolvió un objeto con error (negocio)
-            const actualResponse = methodResponse?.return || methodResponse;
-            if (actualResponse && (actualResponse.error || actualResponse.code >= 400)) {
-                return {
-                    success: false,
-                    error: actualResponse.error || `Error ${actualResponse.code}`,
-                    code: actualResponse.code,
-                    data: actualResponse
-                };
-            }
-
-            return { success: true, data: methodResponse };
+            return { success: true, data: body };
         } catch (e) {
             console.error('[Facturatech] Error extrayendo respuesta:', e);
             return { success: false, error: e.message, raw: result };
