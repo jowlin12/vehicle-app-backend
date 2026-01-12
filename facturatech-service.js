@@ -215,31 +215,15 @@ class FacturatechService {
 
         // Headers SOAP 1.1 - SOAPAction DEBE estar entre comillas dobles según especificación
         // Content-Type DEBE ser text/xml para SOAP 1.1 (application/soap+xml es para SOAP 1.2)
-        const headersVariants = [
-            {
-                'Content-Type': 'text/xml; charset=utf-8',
-                'SOAPAction': `"urn:FacturaTech#${method}"`,
-                'User-Agent': 'PHP-SOAP/8.1',
-                'Accept': 'text/xml',
-                'Connection': 'keep-alive'
-            },
-            {
-                'Content-Type': 'text/xml; charset=utf-8',
-                'SOAPAction': `"urn:FacturaTech#${method}"`,
-                'User-Agent': 'NuSOAP/0.9.5 (1.123)',
-                'Accept': '*/*',
-                'Connection': 'keep-alive'
-            },
-            {
-                'Content-Type': 'text/xml; charset=utf-8',
-                'SOAPAction': `"urn:FacturaTech#${method}"`,
-                'User-Agent': 'Mozilla/5.0 (compatible; FacturaTech-Client/1.0)',
-                'Accept': 'text/xml, application/xml, */*',
-                'Connection': 'keep-alive'
-            }
-        ];
-
-        const headers = headersVariants[(attempt - 1) % headersVariants.length];
+        // Headers SOAP 1.1 - Usamos PHP-SOAP/8.1 que ha demostrado funcionar mejor
+        // para pasar el WAF de Cloudflare junto con el proxy
+        const headers = {
+            'Content-Type': 'text/xml; charset=utf-8',
+            'SOAPAction': `"urn:FacturaTech#${method}"`,
+            'User-Agent': 'PHP-SOAP/8.1',
+            'Accept': 'text/xml',
+            'Connection': 'keep-alive'
+        };
 
         try {
             // Configurar axios con soporte de proxy opcional
@@ -271,10 +255,10 @@ class FacturatechService {
                 console.error('[Facturatech] Respuesta no es XML válido. Posible error de Cloudflare/WAF.');
                 console.error('[Facturatech] Contenido COMPLETO recibido:', responseData);
 
-                // Si no es XML y hay intentos, reintentar con más delay
+                // Si falla, reintentar con backoff exponencial
                 if (attempt < maxAttempts) {
-                    const delay = Math.pow(2, attempt) * 2000; // Backoff más agresivo: 4s, 8s, 16s, 32s
-                    console.log(`[Facturatech] Reintentando en ${delay / 1000}s debido a respuesta inválida...`);
+                    const delay = Math.pow(2, attempt) * 5000; // Backoff más lento: 10s, 20s, 40s, 80s
+                    console.log(`[Facturatech] Reintentando en ${delay / 1000}s...`);
                     await new Promise(resolve => setTimeout(resolve, delay));
                     return this._ejecutarSoap(method, params, attempt + 1);
                 }
