@@ -4,19 +4,16 @@
  * Este servicio maneja toda la comunicación SOAP con el webservice
  * de Facturatech para la emisión de facturas electrónicas.
  */
-
 const crypto = require('crypto');
 const axios = require('axios');
 const xml2js = require('xml2js');
 const { EMISOR, ENDPOINTS, NUMERACION, TIPOS_DOCUMENTO_DIAN } = require('./facturatech-config');
-
 class FacturatechService {
     constructor() {
         this.user = process.env.FACTURATECH_USER || '';
         this.password = this._hashPassword(process.env.FACTURATECH_PASSWORD || '');
         this.env = process.env.FACTURATECH_ENV || 'demo';
         this.endpoint = ENDPOINTS[this.env];
-
         if (!this.user) {
             console.warn('[Facturatech] ADVERTENCIA: FACTURATECH_USER no está configurado');
         }
@@ -24,7 +21,6 @@ class FacturatechService {
             console.warn('[Facturatech] ADVERTENCIA: FACTURATECH_PASSWORD no está configurado');
         }
     }
-
     /**
      * Hash SHA-256 de la contraseña (requerido por Facturatech)
      */
@@ -32,7 +28,6 @@ class FacturatechService {
         if (!password) return '';
         return crypto.createHash('sha256').update(password).digest('hex');
     }
-
     /**
      * Escapa caracteres especiales para XML
      */
@@ -45,7 +40,6 @@ class FacturatechService {
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&apos;');
     }
-
     /**
      * Genera el XML Layout completo para una factura
      * 
@@ -58,24 +52,18 @@ class FacturatechService {
     generarXmlLayout(adquiriente, items, totales, numeroFactura, referencia = '') {
         const fechaActual = new Date().toISOString().split('T')[0];
         const horaActual = new Date().toTimeString().split(' ')[0];
-
         // Obtener código DIAN del tipo de documento
         const tipoDocDian = TIPOS_DOCUMENTO_DIAN[adquiriente.tipoDocumento] || '13';
-
         // Generar XML de items
         const itemsXml = items.map((item, index) => {
             const subtotal = item.cantidad * item.precioUnitario;
             const valorIva = subtotal * (item.porcentajeIva / 100);
             const totalLinea = subtotal + valorIva;
-
             return `<ITE><ITE_1>${index + 1}</ITE_1><ITE_3>${this._escapeXml(item.codigo || `ITEM${index + 1}`)}</ITE_3><ITE_4>${item.cantidad}</ITE_4><ITE_5>EA</ITE_5><ITE_6>${item.precioUnitario.toFixed(2)}</ITE_6><ITE_7>${subtotal.toFixed(2)}</ITE_7><ITE_10>${this._escapeXml(item.descripcion)}</ITE_10><ITE_11>01</ITE_11><ITE_14>${item.porcentajeIva.toFixed(2)}</ITE_14><ITE_15>${valorIva.toFixed(2)}</ITE_15><ITE_18>${totalLinea.toFixed(2)}</ITE_18></ITE>`;
         }).join('');
-
         const layout = `<?xml version="1.0" encoding="UTF-8"?><FACTURA><ENC><ENC_1>01</ENC_1><ENC_2>${NUMERACION.prefijo}</ENC_2><ENC_3>${numeroFactura}</ENC_3><ENC_4>${fechaActual}</ENC_4><ENC_5>${horaActual}</ENC_5><ENC_6>${fechaActual}</ENC_6><ENC_7>01</ENC_7><ENC_9>COP</ENC_9><ENC_10>10</ENC_10><ENC_16>${this._escapeXml(referencia)}</ENC_16></ENC><EMI><EMI_1>${EMISOR.tipoPersona}</EMI_1><EMI_2>${EMISOR.nit}</EMI_2><EMI_3>${EMISOR.dv}</EMI_3><EMI_6>${this._escapeXml(EMISOR.razonSocial)}</EMI_6><EMI_7>${this._escapeXml(EMISOR.nombreComercial)}</EMI_7><EMI_10>${this._escapeXml(EMISOR.direccion)}</EMI_10><EMI_11>${EMISOR.codigoCiudad}</EMI_11><EMI_12>${this._escapeXml(EMISOR.ciudad)}</EMI_12><EMI_13>${this._escapeXml(EMISOR.departamento)}</EMI_13><EMI_14>${EMISOR.codigoDepto}</EMI_14><EMI_15>${EMISOR.pais}</EMI_15><EMI_19>${EMISOR.telefono}</EMI_19><EMI_23>${EMISOR.responsabilidad}</EMI_23><EMI_24>${EMISOR.regimen}</EMI_24></EMI><ADQ><ADQ_1>${adquiriente.tipoPersona || '2'}</ADQ_1><ADQ_2>${adquiriente.numeroDocumento}</ADQ_2><ADQ_3>${adquiriente.dv || ''}</ADQ_3><ADQ_5>${tipoDocDian}</ADQ_5><ADQ_6>${this._escapeXml(adquiriente.razonSocial)}</ADQ_6><ADQ_7>${this._escapeXml(adquiriente.nombreComercial || adquiriente.razonSocial)}</ADQ_7><ADQ_10>${this._escapeXml(adquiriente.direccion)}</ADQ_10><ADQ_11>${adquiriente.codigoCiudad || '54001'}</ADQ_11><ADQ_12>${this._escapeXml(adquiriente.ciudad || 'Cúcuta')}</ADQ_12><ADQ_13>${this._escapeXml(adquiriente.departamento || 'Norte de Santander')}</ADQ_13><ADQ_14>${adquiriente.codigoDepto || '54'}</ADQ_14><ADQ_15>CO</ADQ_15><ADQ_19>${adquiriente.telefono || ''}</ADQ_19><ADQ_22>${adquiriente.email || ''}</ADQ_22><ADQ_23>${adquiriente.responsabilidad || 'R-99-PN'}</ADQ_23><ADQ_24>${adquiriente.regimen || '49'}</ADQ_24></ADQ><TOT><TOT_1>${totales.baseGravable.toFixed(2)}</TOT_1><TOT_2>01</TOT_2><TOT_3>${totales.iva.toFixed(2)}</TOT_3><TOT_4>${totales.total.toFixed(2)}</TOT_4></TOT>${itemsXml}</FACTURA>`;
-
         return layout;
     }
-
     /**
      * Crea el envelope SOAP para una llamada al webservice
      */
@@ -83,27 +71,22 @@ class FacturatechService {
         const paramsXml = Object.entries(params)
             .map(([key, value]) => `<${key}>${this._escapeXml(value)}</${key}>`)
             .join('');
-
         return `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="urn:FacturaTech"><soapenv:Body><urn:${method}>${paramsXml}</urn:${method}></soapenv:Body></soapenv:Envelope>`;
     }
-
     /**
      * Ejecuta una llamada SOAP al webservice con reintentos
      */
     async _ejecutarSoap(method, params, attempt = 1) {
         const maxAttempts = 3;
         const envelope = this._crearSoapEnvelope(method, params);
-
         console.log(`[Facturatech] Ejecutando método: ${method} (intento ${attempt}/${maxAttempts})`);
         console.log(`[Facturatech] Endpoint: ${this.endpoint}`);
-
         // Validar credenciales antes de enviar
         if (!this.user || !this.password) {
             console.warn('[Facturatech] ¡PELIGRO! Credenciales vacías. La solicitud fallará.');
         } else if (this.user.length < 8) {
             console.warn(`[Facturatech] ¡ADVERTENCIA! El usuario '${this.user}' tiene ${this.user.length} dígitos. ¿Es correcto? (NIT suele tener 9 o 10 con DV, o 8-9 sin DV).`);
         }
-
         // Log parcial del payload para debug (sin revelar password completo)
         if (params.file && attempt === 1) {
             try {
@@ -113,34 +96,32 @@ class FacturatechService {
                 console.error('Error decodificando sample de base64:', err);
             }
         }
-
-        // Headers alternativos para diferentes intentos (eludir bloqueos de WAF)
+        // Headers SOAP 1.1 - SOAPAction DEBE estar entre comillas dobles según especificación
+        // Content-Type DEBE ser text/xml para SOAP 1.1 (application/soap+xml es para SOAP 1.2)
         const headersVariants = [
             {
                 'Content-Type': 'text/xml; charset=utf-8',
-                'SOAPAction': `urn:FacturaTech#${method}`,
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-                'Accept': 'text/xml, application/xml, */*',
-                'Accept-Language': 'es-CO,es;q=0.9,en;q=0.8',
-                'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache'
+                'SOAPAction': `"urn:FacturaTech#${method}"`,
+                'User-Agent': 'PHP-SOAP/8.1',
+                'Accept': 'text/xml',
+                'Connection': 'keep-alive'
             },
             {
                 'Content-Type': 'text/xml; charset=utf-8',
-                'SOAPAction': `urn:FacturaTech#${method}`,
+                'SOAPAction': `"urn:FacturaTech#${method}"`,
                 'User-Agent': 'NuSOAP/0.9.5 (1.123)',
-                'Accept': '*/*'
+                'Accept': '*/*',
+                'Connection': 'keep-alive'
             },
             {
-                'Content-Type': 'application/soap+xml; charset=utf-8',
-                'SOAPAction': `urn:FacturaTech#${method}`,
-                'User-Agent': 'PHP-SOAP/8.1',
-                'Accept': 'text/xml'
+                'Content-Type': 'text/xml; charset=utf-8',
+                'SOAPAction': `"urn:FacturaTech#${method}"`,
+                'User-Agent': 'Mozilla/5.0 (compatible; FacturaTech-Client/1.0)',
+                'Accept': 'text/xml, application/xml, */*',
+                'Connection': 'keep-alive'
             }
         ];
-
         const headers = headersVariants[(attempt - 1) % headersVariants.length];
-
         try {
             const response = await axios.post(this.endpoint, envelope, {
                 headers,
@@ -148,20 +129,16 @@ class FacturatechService {
                 // Deshabilitar compresión para evitar problemas con algunos WAF
                 decompress: attempt > 1 ? false : true
             });
-
             // Parsear respuesta XML
             const parser = new xml2js.Parser({
                 explicitArray: false,
                 ignoreAttrs: true
             });
-
             const result = await parser.parseStringPromise(response.data);
             console.log(`[Facturatech] Respuesta recibida para ${method}`);
-
             return this._extraerRespuesta(result, method);
         } catch (error) {
             console.error(`[Facturatech] Error en ${method} (intento ${attempt}):`, error.message);
-
             // Si es un error 502/503/504 y aún hay intentos, reintentar con backoff
             if (error.response && [502, 503, 504].includes(error.response.status) && attempt < maxAttempts) {
                 const delay = Math.pow(2, attempt) * 1000; // Backoff exponencial: 2s, 4s, 8s
@@ -169,14 +146,12 @@ class FacturatechService {
                 await new Promise(resolve => setTimeout(resolve, delay));
                 return this._ejecutarSoap(method, params, attempt + 1);
             }
-
             if (error.response) {
                 console.error('[Facturatech] Response data:', error.response.data);
             }
             throw error;
         }
     }
-
     /**
      * Extrae la respuesta relevante del XML parseado
      */
@@ -186,18 +161,14 @@ class FacturatechService {
             const body = result['SOAP-ENV:Envelope']?.['SOAP-ENV:Body'] ||
                 result['soap:Envelope']?.['soap:Body'] ||
                 result['soapenv:Envelope']?.['soapenv:Body'];
-
             if (!body) {
                 console.log('[Facturatech] Estructura de respuesta:', JSON.stringify(result, null, 2));
                 return result;
             }
-
             // Buscar la respuesta del método
             const methodResponse = body[`${method}Response`] || body[`ns1:${method}Response`];
-
             if (methodResponse) {
                 const actualResponse = methodResponse.return || methodResponse;
-
                 // Si el método devolvió un objeto con error (negocio)
                 if (actualResponse && (actualResponse.error || (actualResponse.code && parseInt(actualResponse.code) >= 400))) {
                     return {
@@ -207,13 +178,11 @@ class FacturatechService {
                         data: actualResponse
                     };
                 }
-
                 return {
                     success: true,
                     data: methodResponse
                 };
             }
-
             // Si hay un fault, extraerlo
             const fault = body['SOAP-ENV:Fault'] || body['soap:Fault'] || body['soapenv:Fault'] || body['Fault'];
             if (fault) {
@@ -222,34 +191,28 @@ class FacturatechService {
                     error: fault.faultstring || fault.reason || 'Error desconocido en SOAP'
                 };
             }
-
             return { success: true, data: body };
         } catch (e) {
             console.error('[Facturatech] Error extrayendo respuesta:', e);
             return { success: false, error: e.message, raw: result };
         }
     }
-
     // ═══════════════════════════════════════════════════════════════
     // MÉTODOS PÚBLICOS DEL WEBSERVICE
     // ═══════════════════════════════════════════════════════════════
-
     /**
      * Sube una factura en formato Layout a Facturatech
      * @returns {Promise<{success: boolean, transactionId?: string, error?: string}>}
      */
     async uploadInvoiceFileLayout(xmlLayout) {
         const xmlBase64 = Buffer.from(xmlLayout, 'utf-8').toString('base64');
-
         const result = await this._ejecutarSoap('FtechAction.uploadInvoiceFileLayout', {
             username: this.user,
             password: this.password,
             file: xmlBase64
         });
-
         if (result.success && result.data) {
             const data = result.data.return || result.data;
-
             // Si hay un ID de transacción válido
             if (data.transaccionID && data.transaccionID !== '0') {
                 return {
@@ -257,20 +220,17 @@ class FacturatechService {
                     transactionId: String(data.transaccionID)
                 };
             }
-
             return {
                 success: false,
                 error: data.error || 'No se obtuvo ID de transacción',
                 code: data.code
             };
         }
-
         return {
             success: false,
             error: result.error || 'Error al subir factura'
         };
     }
-
     /**
      * Consulta el estado de un documento
      * @returns {Promise<{success: boolean, status?: string, message?: string}>}
@@ -281,7 +241,6 @@ class FacturatechService {
             password: this.password,
             transaccionID: transactionId
         });
-
         if (result.success && result.data) {
             return {
                 success: true,
@@ -290,13 +249,11 @@ class FacturatechService {
                 data: result.data
             };
         }
-
         return {
             success: false,
             error: result.error || 'Error al consultar estado'
         };
     }
-
     /**
      * Descarga el PDF de una factura
      * @returns {Promise<{success: boolean, pdfBase64?: string}>}
@@ -308,7 +265,6 @@ class FacturatechService {
             prefijo: prefijo,
             folio: folio
         });
-
         if (result.success && result.data) {
             const pdfBase64 = result.data.return || result.data.resourceData;
             return {
@@ -316,13 +272,11 @@ class FacturatechService {
                 pdfBase64: pdfBase64
             };
         }
-
         return {
             success: false,
             error: result.error || 'Error al descargar PDF'
         };
     }
-
     /**
      * Descarga el XML firmado de una factura
      * @returns {Promise<{success: boolean, xmlBase64?: string}>}
@@ -334,7 +288,6 @@ class FacturatechService {
             prefijo: prefijo,
             folio: folio
         });
-
         if (result.success && result.data) {
             const xmlBase64 = result.data.return || result.data.resourceData;
             return {
@@ -342,13 +295,11 @@ class FacturatechService {
                 xmlBase64: xmlBase64
             };
         }
-
         return {
             success: false,
             error: result.error || 'Error al descargar XML'
         };
     }
-
     /**
      * Obtiene el CUFE de una factura
      * @returns {Promise<{success: boolean, cufe?: string}>}
@@ -360,7 +311,6 @@ class FacturatechService {
             prefijo: prefijo,
             folio: folio
         });
-
         if (result.success && result.data) {
             const cufe = result.data.return || result.data.resourceData;
             return {
@@ -368,13 +318,11 @@ class FacturatechService {
                 cufe: cufe
             };
         }
-
         return {
             success: false,
             error: result.error || 'Error al obtener CUFE'
         };
     }
-
     /**
      * Obtiene los datos del código QR de una factura
      * @returns {Promise<{success: boolean, qrData?: string}>}
@@ -386,7 +334,6 @@ class FacturatechService {
             prefijo: prefijo,
             folio: folio
         });
-
         if (result.success && result.data) {
             const qrData = result.data.return || result.data.resourceData;
             return {
@@ -394,13 +341,11 @@ class FacturatechService {
                 qrData: qrData
             };
         }
-
         return {
             success: false,
             error: result.error || 'Error al obtener QR'
         };
     }
-
     /**
      * Obtiene la imagen del código QR de una factura
      * @returns {Promise<{success: boolean, qrImageBase64?: string}>}
@@ -412,7 +357,6 @@ class FacturatechService {
             prefijo: prefijo,
             folio: folio
         });
-
         if (result.success && result.data) {
             const qrImage = result.data.return || result.data.resourceData;
             return {
@@ -420,17 +364,14 @@ class FacturatechService {
                 qrImageBase64: qrImage
             };
         }
-
         return {
             success: false,
             error: result.error || 'Error al obtener imagen QR'
         };
     }
-
     // ═══════════════════════════════════════════════════════════════
     // MÉTODOS DE UTILIDAD
     // ═══════════════════════════════════════════════════════════════
-
     /**
      * Obtiene el siguiente número de factura disponible
      * (En producción, esto debería consultarse de la base de datos)
@@ -444,14 +385,11 @@ class FacturatechService {
                 .eq('prefijo', NUMERACION.prefijo)
                 .order('numero_factura', { ascending: false })
                 .limit(1);
-
             if (error) throw error;
-
             if (data && data.length > 0) {
                 const ultimoNumero = parseInt(data[0].numero_factura);
                 return ultimoNumero + 1;
             }
-
             // Si no hay facturas, empezar desde el rango inicial
             return NUMERACION.rangoDesde;
         } catch (e) {
@@ -460,23 +398,19 @@ class FacturatechService {
             return Date.now() % 1000000;
         }
     }
-
     /**
      * Calcula los totales de una factura a partir de los items
      */
     calcularTotales(items, porcentajeIvaDefault = 19) {
         let baseGravable = 0;
         let iva = 0;
-
         items.forEach(item => {
             const subtotal = item.cantidad * item.precioUnitario;
             const porcentajeIva = item.porcentajeIva ?? porcentajeIvaDefault;
             const valorIva = subtotal * (porcentajeIva / 100);
-
             baseGravable += subtotal;
             iva += valorIva;
         });
-
         return {
             baseGravable,
             iva,
@@ -484,5 +418,4 @@ class FacturatechService {
         };
     }
 }
-
 module.exports = FacturatechService;
