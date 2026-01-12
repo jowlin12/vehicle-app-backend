@@ -55,6 +55,12 @@ class FacturatechService {
      * @param {string} numeroFactura - Número de la factura
      * @param {string} referencia - Referencia (ej: número de orden de trabajo)
      */
+    /**
+     * Genera el Layout en formato Flat File (Archivo Plano) requerido por Facturatech
+     * 
+     * IMPORTANTE: El método uploadInvoiceFileLayout NO acepta XML.
+     * Usa formato propietario: [FACTURA], (SECCION), CAMPO;VALOR;
+     */
     generarXmlLayout(adquiriente, items, totales, numeroFactura, referencia = '') {
         const fechaActual = new Date().toISOString().split('T')[0];
         const horaActual = new Date().toTimeString().split(' ')[0];
@@ -62,16 +68,89 @@ class FacturatechService {
         // Obtener código DIAN del tipo de documento
         const tipoDocDian = TIPOS_DOCUMENTO_DIAN[adquiriente.tipoDocumento] || '13';
 
-        // Generar XML de items
-        const itemsXml = items.map((item, index) => {
+        // Función helper para limpiar valores (sin punto y coma ni saltos de línea)
+        const clean = (val) => String(val || '').replace(/;/g, ',').replace(/\n/g, ' ').trim();
+
+        // Generar items en formato Layout
+        const itemsLayout = items.map((item, index) => {
             const subtotal = item.cantidad * item.precioUnitario;
             const valorIva = subtotal * (item.porcentajeIva / 100);
             const totalLinea = subtotal + valorIva;
 
-            return `<ITE><ITE_1>${index + 1}</ITE_1><ITE_3>${this._escapeXml(item.codigo || `ITEM${index + 1}`)}</ITE_3><ITE_4>${item.cantidad}</ITE_4><ITE_5>EA</ITE_5><ITE_6>${item.precioUnitario.toFixed(2)}</ITE_6><ITE_7>${subtotal.toFixed(2)}</ITE_7><ITE_10>${this._escapeXml(item.descripcion)}</ITE_10><ITE_11>01</ITE_11><ITE_14>${item.porcentajeIva.toFixed(2)}</ITE_14><ITE_15>${valorIva.toFixed(2)}</ITE_15><ITE_18>${totalLinea.toFixed(2)}</ITE_18></ITE>`;
-        }).join('');
+            return [
+                '(ITE)',
+                `ITE_1;${index + 1};`,
+                `ITE_3;${clean(item.codigo || `ITEM${index + 1}`)};`,
+                `ITE_4;${item.cantidad};`,
+                `ITE_5;EA;`,
+                `ITE_6;${item.precioUnitario.toFixed(2)};`,
+                `ITE_7;${subtotal.toFixed(2)};`,
+                `ITE_10;${clean(item.descripcion)};`,
+                `ITE_11;01;`,
+                `ITE_14;${item.porcentajeIva.toFixed(2)};`,
+                `ITE_15;${valorIva.toFixed(2)};`,
+                `ITE_18;${totalLinea.toFixed(2)};`,
+                '(/ITE)'
+            ].join('\n');
+        }).join('\n');
 
-        const layout = `<?xml version="1.0" encoding="UTF-8"?>\n<FACTURA><ENC><ENC_1>01</ENC_1><ENC_2>${NUMERACION.prefijo}</ENC_2><ENC_3>${numeroFactura}</ENC_3><ENC_4>${fechaActual}</ENC_4><ENC_5>${horaActual}</ENC_5><ENC_6>${fechaActual}</ENC_6><ENC_7>01</ENC_7><ENC_9>COP</ENC_9><ENC_10>10</ENC_10><ENC_16>${this._escapeXml(referencia)}</ENC_16></ENC><EMI><EMI_1>${EMISOR.tipoPersona}</EMI_1><EMI_2>${EMISOR.nit}</EMI_2><EMI_3>${EMISOR.dv}</EMI_3><EMI_6>${this._escapeXml(EMISOR.razonSocial)}</EMI_6><EMI_7>${this._escapeXml(EMISOR.nombreComercial)}</EMI_7><EMI_10>${this._escapeXml(EMISOR.direccion)}</EMI_10><EMI_11>${EMISOR.codigoCiudad}</EMI_11><EMI_12>${this._escapeXml(EMISOR.ciudad)}</EMI_12><EMI_13>${this._escapeXml(EMISOR.departamento)}</EMI_13><EMI_14>${EMISOR.codigoDepto}</EMI_14><EMI_15>${EMISOR.pais}</EMI_15><EMI_19>${EMISOR.telefono}</EMI_19><EMI_23>${EMISOR.responsabilidad}</EMI_23><EMI_24>${EMISOR.regimen}</EMI_24></EMI><ADQ><ADQ_1>${adquiriente.tipoPersona || '2'}</ADQ_1><ADQ_2>${adquiriente.numeroDocumento}</ADQ_2><ADQ_3>${adquiriente.dv || ''}</ADQ_3><ADQ_5>${tipoDocDian}</ADQ_5><ADQ_6>${this._escapeXml(adquiriente.razonSocial)}</ADQ_6><ADQ_7>${this._escapeXml(adquiriente.nombreComercial || adquiriente.razonSocial)}</ADQ_7><ADQ_10>${this._escapeXml(adquiriente.direccion)}</ADQ_10><ADQ_11>${adquiriente.codigoCiudad || '54001'}</ADQ_11><ADQ_12>${this._escapeXml(adquiriente.ciudad || 'Cúcuta')}</ADQ_12><ADQ_13>${this._escapeXml(adquiriente.departamento || 'Norte de Santander')}</ADQ_13><ADQ_14>${adquiriente.codigoDepto || '54'}</ADQ_14><ADQ_15>CO</ADQ_15><ADQ_19>${adquiriente.telefono || ''}</ADQ_19><ADQ_22>${adquiriente.email || ''}</ADQ_22><ADQ_23>${adquiriente.responsabilidad || 'R-99-PN'}</ADQ_23><ADQ_24>${adquiriente.regimen || '49'}</ADQ_24></ADQ><TOT><TOT_1>${totales.baseGravable.toFixed(2)}</TOT_1><TOT_2>01</TOT_2><TOT_3>${totales.iva.toFixed(2)}</TOT_3><TOT_4>${totales.total.toFixed(2)}</TOT_4></TOT>${itemsXml}</FACTURA>`;
+        // Construir Layout completo en formato Flat File
+        const layout = [
+            '[FACTURA]',
+            '(ENC)',
+            'ENC_1;01;',
+            `ENC_2;${NUMERACION.prefijo};`,
+            `ENC_3;${numeroFactura};`,
+            `ENC_4;${fechaActual};`,
+            `ENC_5;${horaActual};`,
+            `ENC_6;${fechaActual};`,
+            'ENC_7;01;',
+            'ENC_9;COP;',
+            'ENC_10;10;',
+            `ENC_16;${clean(referencia)};`,
+            '(/ENC)',
+            '(EMI)',
+            `EMI_1;${EMISOR.tipoPersona};`,
+            `EMI_2;${EMISOR.nit};`,
+            `EMI_3;${EMISOR.dv};`,
+            `EMI_6;${clean(EMISOR.razonSocial)};`,
+            `EMI_7;${clean(EMISOR.nombreComercial)};`,
+            `EMI_10;${clean(EMISOR.direccion)};`,
+            `EMI_11;${EMISOR.codigoCiudad};`,
+            `EMI_12;${clean(EMISOR.ciudad)};`,
+            `EMI_13;${clean(EMISOR.departamento)};`,
+            `EMI_14;${EMISOR.codigoDepto};`,
+            `EMI_15;${EMISOR.pais};`,
+            `EMI_19;${EMISOR.telefono};`,
+            `EMI_23;${EMISOR.responsabilidad};`,
+            `EMI_24;${EMISOR.regimen};`,
+            '(/EMI)',
+            '(ADQ)',
+            `ADQ_1;${adquiriente.tipoPersona || '2'};`,
+            `ADQ_2;${adquiriente.numeroDocumento};`,
+            `ADQ_3;${adquiriente.dv || ''};`,
+            `ADQ_5;${tipoDocDian};`,
+            `ADQ_6;${clean(adquiriente.razonSocial)};`,
+            `ADQ_7;${clean(adquiriente.nombreComercial || adquiriente.razonSocial)};`,
+            `ADQ_10;${clean(adquiriente.direccion)};`,
+            `ADQ_11;${adquiriente.codigoCiudad || '54001'};`,
+            `ADQ_12;${clean(adquiriente.ciudad || 'Cúcuta')};`,
+            `ADQ_13;${clean(adquiriente.departamento || 'Norte de Santander')};`,
+            `ADQ_14;${adquiriente.codigoDepto || '54'};`,
+            'ADQ_15;CO;',
+            `ADQ_19;${adquiriente.telefono || ''};`,
+            `ADQ_22;${adquiriente.email || ''};`,
+            `ADQ_23;${adquiriente.responsabilidad || 'R-99-PN'};`,
+            `ADQ_24;${adquiriente.regimen || '49'};`,
+            '(/ADQ)',
+            '(TOT)',
+            `TOT_1;${totales.baseGravable.toFixed(2)};`,
+            'TOT_2;01;',
+            `TOT_3;${totales.iva.toFixed(2)};`,
+            `TOT_4;${totales.total.toFixed(2)};`,
+            '(/TOT)',
+            itemsLayout
+        ].join('\n');
 
         return layout;
     }
@@ -277,14 +356,23 @@ class FacturatechService {
     async uploadInvoiceFileLayout(xmlLayout) {
         const xmlBase64 = Buffer.from(xmlLayout, 'utf-8').toString('base64');
 
+        // Log del XML antes de codificar para verificar formato
+        console.log('[Facturatech] XML Layout primeros 300 chars:', xmlLayout.substring(0, 300));
+
         const result = await this._ejecutarSoap('FtechAction.uploadInvoiceFileLayout', {
             username: this.user,
             password: this.password,
             file: xmlBase64
         });
 
+        // LOG DETALLADO de la respuesta completa
+        console.log('[Facturatech] Resultado completo:', JSON.stringify(result, null, 2));
+
         if (result.success && result.data) {
             const data = result.data.return || result.data;
+
+            // Log detallado de los campos recibidos
+            console.log('[Facturatech] Data extraída:', JSON.stringify(data, null, 2));
 
             // Si hay un ID de transacción válido
             if (data.transaccionID && data.transaccionID !== '0') {
@@ -296,8 +384,8 @@ class FacturatechService {
 
             return {
                 success: false,
-                error: data.error || 'No se obtuvo ID de transacción',
-                code: data.code
+                error: data.error || data.mensaje || data.message || 'No se obtuvo ID de transacción',
+                code: data.code || data.codigo
             };
         }
 
