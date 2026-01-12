@@ -88,12 +88,13 @@ class FacturatechService {
     }
 
     /**
-     * Ejecuta una llamada SOAP al webservice
+     * Ejecuta una llamada SOAP al webservice con reintentos
      */
-    async _ejecutarSoap(method, params) {
+    async _ejecutarSoap(method, params, attempt = 1) {
+        const maxAttempts = 3;
         const envelope = this._crearSoapEnvelope(method, params);
 
-        console.log(`[Facturatech] Ejecutando método: ${method}`);
+        console.log(`[Facturatech] Ejecutando método: ${method} (intento ${attempt}/${maxAttempts})`);
         console.log(`[Facturatech] Endpoint: ${this.endpoint}`);
 
         // Validar credenciales antes de enviar
@@ -104,7 +105,7 @@ class FacturatechService {
         }
 
         // Log parcial del payload para debug (sin revelar password completo)
-        if (params.file) {
+        if (params.file && attempt === 1) {
             try {
                 const sample = Buffer.from(params.file, 'base64').toString('utf-8').substring(0, 500);
                 console.log('[Facturatech] CHECK XML LAYOUT (Decoded Part):', sample);
@@ -113,16 +114,39 @@ class FacturatechService {
             }
         }
 
+        // Headers alternativos para diferentes intentos (eludir bloqueos de WAF)
+        const headersVariants = [
+            {
+                'Content-Type': 'text/xml; charset=utf-8',
+                'SOAPAction': `urn:FacturaTech#${method}`,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                'Accept': 'text/xml, application/xml, */*',
+                'Accept-Language': 'es-CO,es;q=0.9,en;q=0.8',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
+            },
+            {
+                'Content-Type': 'text/xml; charset=utf-8',
+                'SOAPAction': `urn:FacturaTech#${method}`,
+                'User-Agent': 'NuSOAP/0.9.5 (1.123)',
+                'Accept': '*/*'
+            },
+            {
+                'Content-Type': 'application/soap+xml; charset=utf-8',
+                'SOAPAction': `urn:FacturaTech#${method}`,
+                'User-Agent': 'PHP-SOAP/8.1',
+                'Accept': 'text/xml'
+            }
+        ];
+
+        const headers = headersVariants[(attempt - 1) % headersVariants.length];
+
         try {
             const response = await axios.post(this.endpoint, envelope, {
-                headers: {
-                    'Content-Type': 'text/xml; charset=utf-8',
-                    'SOAPAction': `urn:FacturaTech#${method}`,
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': 'text/xml',
-                    'Connection': 'keep-alive'
-                },
-                timeout: 120000 // 2 minutos de timeout
+                headers,
+                timeout: 120000, // 2 minutos de timeout
+                // Deshabilitar compresión para evitar problemas con algunos WAF
+                decompress: attempt > 1 ? false : true
             });
 
             // Parsear respuesta XML
@@ -136,7 +160,16 @@ class FacturatechService {
 
             return this._extraerRespuesta(result, method);
         } catch (error) {
-            console.error(`[Facturatech] Error en ${method}:`, error.message);
+            console.error(`[Facturatech] Error en ${method} (intento ${attempt}):`, error.message);
+
+            // Si es un error 502/503/504 y aún hay intentos, reintentar con backoff
+            if (error.response && [502, 503, 504].includes(error.response.status) && attempt < maxAttempts) {
+                const delay = Math.pow(2, attempt) * 1000; // Backoff exponencial: 2s, 4s, 8s
+                console.log(`[Facturatech] Reintentando en ${delay / 1000}s con headers alternativos...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                return this._ejecutarSoap(method, params, attempt + 1);
+            }
+
             if (error.response) {
                 console.error('[Facturatech] Response data:', error.response.data);
             }
