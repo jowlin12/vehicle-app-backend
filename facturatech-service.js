@@ -170,7 +170,7 @@ class FacturatechService {
      * Ejecuta una llamada SOAP al webservice con reintentos
      */
     async _ejecutarSoap(method, params, attempt = 1) {
-        const maxAttempts = 3;
+        const maxAttempts = 5; // Aumentado para manejar bloqueos intermitentes de Cloudflare
         const envelope = this._crearSoapEnvelope(method, params);
 
         console.log(`[Facturatech] Ejecutando método: ${method} (intento ${attempt}/${maxAttempts})`);
@@ -233,24 +233,26 @@ class FacturatechService {
 
             const responseData = response.data;
 
-            // Log primeros 500 caracteres de la respuesta para diagnóstico
-            console.log(`[Facturatech] Response preview (${method}):`,
-                typeof responseData === 'string' ? responseData.substring(0, 500) : JSON.stringify(responseData).substring(0, 500));
+            // Log de respuesta - si es corta, mostrar completa para diagnóstico
+            const previewLength = responseData.length < 1000 ? responseData.length : 500;
+            console.log(`[Facturatech] Response preview (${method}) [${responseData.length} chars]:`,
+                typeof responseData === 'string' ? responseData.substring(0, previewLength) : JSON.stringify(responseData).substring(0, previewLength));
 
             // Validar que la respuesta sea XML antes de parsear
-            if (typeof responseData !== 'string' || !responseData.trim().startsWith('<?xml') && !responseData.trim().startsWith('<')) {
+            const trimmedData = (typeof responseData === 'string' ? responseData : '').trim();
+            if (!trimmedData.startsWith('<?xml') && !trimmedData.startsWith('<')) {
                 console.error('[Facturatech] Respuesta no es XML válido. Posible error de Cloudflare/WAF.');
-                console.error('[Facturatech] Contenido recibido:', responseData);
+                console.error('[Facturatech] Contenido COMPLETO recibido:', responseData);
 
-                // Si no es XML y hay intentos, reintentar
+                // Si no es XML y hay intentos, reintentar con más delay
                 if (attempt < maxAttempts) {
-                    const delay = Math.pow(2, attempt) * 1000;
-                    console.log(`[Facturatech] Reintentando en ${delay / 1000}s...`);
+                    const delay = Math.pow(2, attempt) * 2000; // Backoff más agresivo: 4s, 8s, 16s, 32s
+                    console.log(`[Facturatech] Reintentando en ${delay / 1000}s debido a respuesta inválida...`);
                     await new Promise(resolve => setTimeout(resolve, delay));
                     return this._ejecutarSoap(method, params, attempt + 1);
                 }
 
-                throw new Error('Respuesta de Facturatech no es XML válido. Posible bloqueo de Cloudflare.');
+                throw new Error(`Respuesta de Facturatech no es XML válido. Contenido: ${responseData.substring(0, 200)}`);
             }
 
             // Limpiar BOM y caracteres invisibles al inicio
