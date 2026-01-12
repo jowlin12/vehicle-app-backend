@@ -244,10 +244,14 @@ class FacturatechService {
             const response = await axios.post(this.endpoint, envelope, axiosConfig);
             const responseData = response.data;
 
-            // Log de respuesta - si es corta, mostrar completa para diagnóstico
-            const previewLength = responseData.length < 1000 ? responseData.length : 500;
-            console.log(`[Facturatech] Response preview (${method}) [${responseData.length} chars]:`,
-                typeof responseData === 'string' ? responseData.substring(0, previewLength) : JSON.stringify(responseData).substring(0, previewLength));
+            // Log de respuesta completa para diagnóstico (si es menor a 2000 chars)
+            console.log(`[Facturatech] Response length: ${responseData?.length || 0} chars`);
+            if (responseData && responseData.length < 2000) {
+                console.log('[Facturatech] RESPUESTA COMPLETA:');
+                console.log(responseData);
+            } else {
+                console.log('[Facturatech] Response preview:', responseData?.substring(0, 500));
+            }
 
             // Validar que la respuesta sea XML antes de parsear
             const trimmedData = (typeof responseData === 'string' ? responseData : '').trim();
