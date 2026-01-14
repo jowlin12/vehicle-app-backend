@@ -183,22 +183,36 @@ class FacturatechService {
     /**
      * Crea el envelope SOAP para una llamada al webservice
      */
-    _crearSoapEnvelope(method, params) {
+    /**
+     * Crea el envelope SOAP para una llamada al webservice
+     */
+    _crearSoapEnvelope(method, params, namespace = 'urn:FacturaTech') {
         const paramsXml = Object.entries(params)
             .map(([key, value]) => `<${key}>${this._escapeXml(value)}</${key}>`)
             .join('');
 
-        return `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="urn:FacturaTech"><soapenv:Body><urn:${method}>${paramsXml}</urn:${method}></soapenv:Body></soapenv:Envelope>`;
+        return `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="${namespace}"><soapenv:Body><urn:${method}>${paramsXml}</urn:${method}></soapenv:Body></soapenv:Envelope>`;
     }
 
     /**
      * Ejecuta una llamada SOAP al webservice con reintentos
+     * @param {string} method Nombre del método SOAP
+     * @param {object|string} params Objeto con parámetros o string XML del envelope ya construido
+     * @param {string|null} customSoapAction Acción SOAP personalizada (opcional)
+     * @param {number} attempt Contador de intentos
      */
-    async _ejecutarSoap(method, params, attempt = 1) {
-        const maxAttempts = 5; // Aumentado para manejar bloqueos intermitentes de Cloudflare
-        const envelope = this._crearSoapEnvelope(method, params);
+    async _ejecutarSoap(method, params, customSoapAction = null, attempt = 1) {
+        const maxAttempts = 5;
 
-        // Log del envelope SOAP para diagnóstico (primeros 1000 chars)
+        // Determinar si params es ya un envelope (string) o parámetros para construirlo
+        let envelope;
+        if (typeof params === 'string') {
+            envelope = params;
+        } else {
+            envelope = this._crearSoapEnvelope(method, params);
+        }
+
+        // Log del envelope SOAP para diagnóstico (primeros 1500 chars)
         if (attempt === 1) {
             console.log('[Facturatech] ========== SOAP ENVELOPE ==========');
             console.log(envelope.substring(0, 1500));
@@ -208,30 +222,17 @@ class FacturatechService {
         console.log(`[Facturatech] Ejecutando método: ${method} (intento ${attempt}/${maxAttempts})`);
         console.log(`[Facturatech] Endpoint: ${this.endpoint}`);
 
-        // Validar credenciales antes de enviar
-        if (!this.user || !this.password) {
-            console.warn('[Facturatech] ¡PELIGRO! Credenciales vacías. La solicitud fallará.');
-        } else if (this.user.length < 8) {
-            console.warn(`[Facturatech] ¡ADVERTENCIA! El usuario '${this.user}' tiene ${this.user.length} dígitos. ¿Es correcto? (NIT suele tener 9 o 10 con DV, o 8-9 sin DV).`);
-        }
-
-        // Log parcial del payload para debug (sin revelar password completo)
-        if (params.file && attempt === 1) {
-            try {
-                const sample = Buffer.from(params.file, 'base64').toString('utf-8').substring(0, 500);
-                console.log('[Facturatech] CHECK XML LAYOUT (Decoded Part):', sample);
-            } catch (err) {
-                console.error('Error decodificando sample de base64:', err);
+        // Validar credenciales antes de enviar (solo si params es objeto)
+        if (typeof params === 'object') {
+            if (!this.user || !this.password) {
+                console.warn('[Facturatech] ¡PELIGRO! Credenciales vacías. La solicitud fallará.');
             }
         }
 
-        // Headers SOAP 1.1 - SOAPAction DEBE estar entre comillas dobles según especificación
-        // Content-Type DEBE ser text/xml para SOAP 1.1 (application/soap+xml es para SOAP 1.2)
-        // Headers SOAP 1.1 - Usamos PHP-SOAP/8.1 que ha demostrado funcionar mejor
-        // para pasar el WAF de Cloudflare junto con el proxy
+        // Headers SOAP 1.1
         const headers = {
             'Content-Type': 'text/xml; charset=utf-8',
-            'SOAPAction': `"urn:FacturaTech#${method}"`,
+            'SOAPAction': customSoapAction || `"urn:FacturaTech#${method}"`,
             'User-Agent': 'PHP-SOAP/8.1',
             'Accept': 'text/xml',
             'Connection': 'keep-alive'
@@ -384,124 +385,44 @@ class FacturatechService {
      */
     async uploadInvoiceFileLayout(xmlLayout) {
         // Asegurar formato limpio: trimming y sin BOM
-        // const sanitizedLayout = xmlLayout.trim().replace(/^\uFEFF/, '');
-
-        // --- PRUEBA DE AISLAMIENTO: USAR LAYOUT EXACTO DEL TEST LOCAL ---
-        const fechaActual = new Date().toISOString().split('T')[0];
-        const horaActual = new Date().toTimeString().split(' ')[0];
-        const sanitizedLayout = `[FACTURA]
-(ENC)
-ENC_1;01;
-ENC_2;FCM;
-ENC_3;999;
-ENC_4;${fechaActual};
-ENC_5;${horaActual};
-ENC_6;${fechaActual};
-ENC_7;01;
-ENC_9;COP;
-ENC_10;10;
-ENC_16;PRUEBA LOCAL;
-(/ENC)
-(EMI)
-EMI_1;2;
-EMI_2;88200963;
-EMI_3;6;
-EMI_6;CARLOS ARTURO MAZO MARIN;
-EMI_7;MI TALLER MAZOS CAR;
-EMI_10;Calle 1 #7E-72 QUINTA ORIENTAL;
-EMI_11;540001;
-EMI_12;Cucuta;
-EMI_13;Norte de Santander;
-EMI_14;54;
-EMI_15;CO;
-EMI_19;3184077646;
-EMI_23;R-99-PN;
-EMI_24;49;
-(/EMI)
-(ADQ)
-ADQ_1;2;
-ADQ_2;12345678;
-ADQ_3;;
-ADQ_5;13;
-ADQ_6;Cliente Prueba;
-ADQ_7;Cliente Prueba;
-ADQ_10;Direccion Prueba;
-ADQ_11;54001;
-ADQ_12;Cucuta;
-ADQ_13;Norte de Santander;
-ADQ_14;54;
-ADQ_15;CO;
-ADQ_19;3001234567;
-ADQ_22;prueba@test.com;
-ADQ_23;R-99-PN;
-ADQ_24;49;
-(/ADQ)
-(TOT)
-TOT_1;100000.00;
-TOT_2;01;
-TOT_3;0.00;
-TOT_4;100000.00;
-(/TOT)
-(ITE)
-ITE_1;1;
-ITE_3;ITEM001;
-ITE_4;1;
-ITE_5;EA;
-ITE_6;100000.00;
-ITE_7;100000.00;
-ITE_10;Servicio de prueba;
-ITE_11;01;
-ITE_14;0.00;
-ITE_15;0.00;
-ITE_18;100000.00;
-(/ITE)`;
+        const sanitizedLayout = xmlLayout.trim().replace(/^\uFEFF/, '');
 
         // Debug: Mostrar primeros bytes en HEX para detectar caracteres invisibles
         const hexPreview = Buffer.from(sanitizedLayout.substring(0, 20), 'utf-8').toString('hex');
-        console.log(`[Facturatech] Layout Start Hex: ${hexPreview}`);
+        this.log(`Layout Start Hex: ${hexPreview}`);
 
-        const xmlBase64 = Buffer.from(sanitizedLayout, 'utf-8').toString('base64');
+        // Log del layout completo para debug crítico
+        this.log('========== LAYOUT COMPLETO ==========');
+        this.log(sanitizedLayout);
+        this.log('========== FIN LAYOUT ==========');
+        this.log(`Layout length: ${sanitizedLayout.length} chars`);
 
-        // Log del layout COMPLETO para diagnóstico
-        console.log('[Facturatech] ========== LAYOUT COMPLETO ==========');
-        console.log(sanitizedLayout);
-        console.log('[Facturatech] ========== FIN LAYOUT ==========');
-        console.log('[Facturatech] Layout length:', sanitizedLayout.length, 'chars');
+        const layoutBase64 = Buffer.from(sanitizedLayout, 'utf-8').toString('base64');
+        const passwordHash = this._hashPassword(this.password);
 
-        const result = await this._ejecutarSoap('FtechAction.uploadInvoiceFileLayout', {
-            username: this.user,
-            password: this.password,
-            layout: xmlBase64  // Cambiado de 'file' a 'layout' según el manual
-        });
-
-        // LOG DETALLADO de la respuesta completa
-        console.log('[Facturatech] Resultado completo:', JSON.stringify(result, null, 2));
-
-        if (result.success && result.data) {
-            const data = result.data.return || result.data;
-
-            // Log detallado de los campos recibidos
-            console.log('[Facturatech] Data extraída:', JSON.stringify(data, null, 2));
-
-            // Si hay un ID de transacción válido
-            if (data.transaccionID && data.transaccionID !== '0') {
-                return {
-                    success: true,
-                    transactionId: String(data.transaccionID)
-                };
-            }
-
-            return {
-                success: false,
-                error: data.error || data.mensaje || data.message || 'No se obtuvo ID de transacción',
-                code: data.code || data.codigo
-            };
-        }
-
-        return {
-            success: false,
-            error: result.error || 'Error al subir factura'
+        const params = {
+            username: this.username,
+            password: passwordHash,
+            layout: layoutBase64
         };
+
+        // Namespace correcto según WSDL y Postman: urn:https://ws.facturatech.co/v2/demo/ (o pro)
+        // NOTA: El WSDL define el targetNamespace como "urn:https://ws.facturatech.co/v2/demo/"
+        const namespace = `urn:https://ws.facturatech.co/v2/${this.env}/`;
+        const method = 'FtechAction.uploadInvoiceFileLayout';
+
+        const envelope = this._crearSoapEnvelope(method, params, namespace);
+
+        // Debug del Envelope
+        this.log('========== SOAP ENVELOPE ==========');
+        this.log(envelope);
+        this.log('========== FIN SOAP ENVELOPE ==========');
+
+        // SOAPAction específico requerido por el servidor (verificado en Postman)
+        // Formato: urn:https://ws.facturatech.co/v2/demo/#FtechAction.uploadInvoiceFileLayout
+        const soapAction = `"${namespace}#${method}"`;
+
+        return this._ejecutarSoap(method, envelope, soapAction);
     }
 
     /**
