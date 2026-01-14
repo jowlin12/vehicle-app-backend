@@ -173,7 +173,6 @@ class FacturatechService {
             'TOT_2;01;',
             `TOT_3;${totales.iva.toFixed(2)};`,
             `TOT_4;${totales.total.toFixed(2)};`,
-            `TOT_4;${totales.total.toFixed(2)};`,
             '(/TOT)',
             itemsLayout
         ].join('\n');
@@ -386,8 +385,11 @@ class FacturatechService {
 
         const xmlBase64 = Buffer.from(sanitizedLayout, 'utf-8').toString('base64');
 
-        // Log del XML antes de codificar para verificar formato
-        console.log('[Facturatech] XML Layout primeros 300 chars:', sanitizedLayout.substring(0, 300));
+        // Log del layout COMPLETO para diagnóstico
+        console.log('[Facturatech] ========== LAYOUT COMPLETO ==========');
+        console.log(sanitizedLayout);
+        console.log('[Facturatech] ========== FIN LAYOUT ==========');
+        console.log('[Facturatech] Layout length:', sanitizedLayout.length, 'chars');
 
         const result = await this._ejecutarSoap('FtechAction.uploadInvoiceFileLayout', {
             username: this.user,
