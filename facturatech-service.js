@@ -188,7 +188,7 @@ class FacturatechService {
             .map(([key, value]) => `<${key}>${this._escapeXml(value)}</${key}>`)
             .join('');
 
-        return `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="urn:FacturaTech"><soapenv:Body><urn:${method}>${paramsXml}</urn:${method}></soapenv:Body></soapenv:Envelope>`;
+        return `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="urn:https://ws.facturatech.co/v2/${this.env}/"><soapenv:Body><urn:${method}>${paramsXml}</urn:${method}></soapenv:Body></soapenv:Envelope>`;
     }
 
     /**
@@ -231,7 +231,7 @@ class FacturatechService {
         // para pasar el WAF de Cloudflare junto con el proxy
         const headers = {
             'Content-Type': 'text/xml; charset=utf-8',
-            'SOAPAction': `"urn:FacturaTech#${method}"`,
+            'SOAPAction': `"urn:https://ws.facturatech.co/v2/${this.env}/#${method}"`,
             'User-Agent': 'PHP-SOAP/8.1',
             'Accept': 'text/xml',
             'Connection': 'keep-alive'
