@@ -87,8 +87,14 @@ class FacturatechService {
         // Obtener código DIAN del tipo de documento
         const tipoDocDian = TIPOS_DOCUMENTO_DIAN[adquiriente.tipoDocumento] || '13';
 
-        // Función helper para limpiar valores (sin punto y coma ni saltos de línea)
-        const clean = (val) => String(val || '').replace(/;/g, ',').replace(/\n/g, ' ').trim();
+        // Función helper para limpiar valores (sin punto y coma, ni saltos de línea, ni acentos)
+        const clean = (val) => {
+            return String(val || '')
+                .replace(/;/g, ',')
+                .replace(/\n/g, ' ')
+                .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // Eliminar acentos
+                .trim();
+        };
 
         // Generar items en formato Layout
         const itemsLayout = items.map((item, index) => {
