@@ -105,7 +105,7 @@ class FacturatechService {
             return [
                 '(ITE)',
                 `ITE_1;${index + 1};`,
-                `ITE_3;${clean(item.codigo || `ITEM${index + 1}`)};`,
+                `ITE_3;${clean(item.codigo || `ITEM${index + 1}`).substring(0, 20)};`,
                 `ITE_4;${item.cantidad};`,
                 `ITE_5;EA;`,
                 `ITE_6;${item.precioUnitario.toFixed(2)};`,
@@ -188,7 +188,7 @@ class FacturatechService {
             .map(([key, value]) => `<${key}>${this._escapeXml(value)}</${key}>`)
             .join('');
 
-        return `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="urn:https://ws.facturatech.co/v2/${this.env}/"><soapenv:Body><urn:${method}>${paramsXml}</urn:${method}></soapenv:Body></soapenv:Envelope>`;
+        return `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="urn:FacturaTech"><soapenv:Body><urn:${method}>${paramsXml}</urn:${method}></soapenv:Body></soapenv:Envelope>`;
     }
 
     /**
@@ -231,7 +231,7 @@ class FacturatechService {
         // para pasar el WAF de Cloudflare junto con el proxy
         const headers = {
             'Content-Type': 'text/xml; charset=utf-8',
-            'SOAPAction': `"urn:https://ws.facturatech.co/v2/${this.env}/#${method}"`,
+            'SOAPAction': `"urn:FacturaTech#${method}"`,
             'User-Agent': 'PHP-SOAP/8.1',
             'Accept': 'text/xml',
             'Connection': 'keep-alive'
@@ -390,7 +390,7 @@ class FacturatechService {
         const hexPreview = Buffer.from(sanitizedLayout.substring(0, 20), 'utf-8').toString('hex');
         console.log(`[Facturatech] Layout Start Hex: ${hexPreview}`);
 
-        const xmlBase64 = Buffer.from(sanitizedLayout, 'latin1').toString('base64');
+        const xmlBase64 = Buffer.from(sanitizedLayout, 'utf-8').toString('base64');
 
         // Log del layout COMPLETO para diagnóstico
         console.log('[Facturatech] ========== LAYOUT COMPLETO ==========');
