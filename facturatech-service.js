@@ -9,7 +9,53 @@ const crypto = require('crypto');
 const axios = require('axios');
 const xml2js = require('xml2js');
 const { HttpsProxyAgent } = require('https-proxy-agent');
-const { EMISOR, ENDPOINTS, NUMERACION, TIPOS_DOCUMENTO_DIAN } = require('./facturatech-config');
+
+// --- INICIO CONFIGURACIÓN INLINED (Para evitar dep. circular) ---
+
+// Configuración del emisor (desde variables de entorno)
+const EMISOR = {
+    tipoPersona: process.env.EMISOR_TIPO_PERSONA || '2', // 1=Jurídica, 2=Natural
+    nit: process.env.EMISOR_NIT || '',
+    dv: process.env.EMISOR_DV || '',
+    razonSocial: process.env.EMISOR_RAZON_SOCIAL || 'MI TALLER MAZOS CAR',
+    nombreComercial: process.env.EMISOR_NOMBRE_COMERCIAL || 'MI TALLER MAZOS CAR',
+    direccion: process.env.EMISOR_DIRECCION || 'Calle 1 #7E-72 Quinta Oriental',
+    codigoCiudad: process.env.EMISOR_CODIGO_CIUDAD || '54001',
+    ciudad: process.env.EMISOR_CIUDAD || 'Cúcuta',
+    departamento: process.env.EMISOR_DEPARTAMENTO || 'Norte de Santander',
+    codigoDepto: process.env.EMISOR_CODIGO_DEPTO || '54',
+    pais: 'CO',
+    telefono: process.env.EMISOR_TELEFONO || '3184077646',
+    email: process.env.EMISOR_EMAIL || '',
+    responsabilidad: process.env.EMISOR_RESPONSABILIDAD || 'R-99-PN',
+    regimen: process.env.EMISOR_REGIMEN || '49' // 49=No responsable IVA
+};
+
+// Endpoints según ambiente
+const ENDPOINTS = {
+    demo: 'https://ws.facturatech.co/v2/demo/index.php',
+    production: 'https://ws.facturatech.co/v2/pro/index.php'
+};
+
+// Configuración de numeración de facturación
+const NUMERACION = {
+    prefijo: process.env.FACTURA_PREFIJO || 'SETT',
+    resolucion: process.env.FACTURA_RESOLUCION || '',
+    rangoDesde: parseInt(process.env.FACTURA_RANGO_DESDE || '1'),
+    rangoHasta: parseInt(process.env.FACTURA_RANGO_HASTA || '5000')
+};
+
+// Tipos de documento DIAN
+const TIPOS_DOCUMENTO_DIAN = {
+    'CC': '13',   // Cédula de ciudadanía
+    'NIT': '31',  // NIT
+    'CE': '22',   // Cédula de extranjería
+    'PP': '41',   // Pasaporte
+    'TI': '12',   // Tarjeta de identidad
+    'DIE': '42'   // Documento de identificación extranjero
+};
+
+// --- FIN CONFIGURACIÓN INLINED ---
 
 class FacturatechService {
     constructor() {
@@ -405,7 +451,7 @@ class FacturatechService {
         const passwordHash = this._hashPassword(this.password);
 
         const params = {
-            username: this.username,
+            username: this.user,
             password: passwordHash,
             layout: layoutBase64
         };
