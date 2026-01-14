@@ -448,11 +448,11 @@ class FacturatechService {
         console.log(`Layout length: ${sanitizedLayout.length} chars`);
 
         const layoutBase64 = Buffer.from(sanitizedLayout, 'utf-8').toString('base64');
-        const passwordHash = this._hashPassword(this.password);
 
+        // NOTA: this.password YA está hasheada en el constructor, no hashear de nuevo
         const params = {
             username: this.user,
-            password: passwordHash,
+            password: this.password,  // Ya es hash SHA256
             layout: layoutBase64
         };
 
