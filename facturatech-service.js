@@ -384,7 +384,77 @@ class FacturatechService {
      */
     async uploadInvoiceFileLayout(xmlLayout) {
         // Asegurar formato limpio: trimming y sin BOM
-        const sanitizedLayout = xmlLayout.trim().replace(/^\uFEFF/, '');
+        // const sanitizedLayout = xmlLayout.trim().replace(/^\uFEFF/, '');
+
+        // --- PRUEBA DE AISLAMIENTO: USAR LAYOUT EXACTO DEL TEST LOCAL ---
+        const fechaActual = new Date().toISOString().split('T')[0];
+        const horaActual = new Date().toTimeString().split(' ')[0];
+        const sanitizedLayout = `[FACTURA]
+(ENC)
+ENC_1;01;
+ENC_2;FCM;
+ENC_3;999;
+ENC_4;${fechaActual};
+ENC_5;${horaActual};
+ENC_6;${fechaActual};
+ENC_7;01;
+ENC_9;COP;
+ENC_10;10;
+ENC_16;PRUEBA LOCAL;
+(/ENC)
+(EMI)
+EMI_1;2;
+EMI_2;88200963;
+EMI_3;6;
+EMI_6;CARLOS ARTURO MAZO MARIN;
+EMI_7;MI TALLER MAZOS CAR;
+EMI_10;Calle 1 #7E-72 QUINTA ORIENTAL;
+EMI_11;540001;
+EMI_12;Cucuta;
+EMI_13;Norte de Santander;
+EMI_14;54;
+EMI_15;CO;
+EMI_19;3184077646;
+EMI_23;R-99-PN;
+EMI_24;49;
+(/EMI)
+(ADQ)
+ADQ_1;2;
+ADQ_2;12345678;
+ADQ_3;;
+ADQ_5;13;
+ADQ_6;Cliente Prueba;
+ADQ_7;Cliente Prueba;
+ADQ_10;Direccion Prueba;
+ADQ_11;54001;
+ADQ_12;Cucuta;
+ADQ_13;Norte de Santander;
+ADQ_14;54;
+ADQ_15;CO;
+ADQ_19;3001234567;
+ADQ_22;prueba@test.com;
+ADQ_23;R-99-PN;
+ADQ_24;49;
+(/ADQ)
+(TOT)
+TOT_1;100000.00;
+TOT_2;01;
+TOT_3;0.00;
+TOT_4;100000.00;
+(/TOT)
+(ITE)
+ITE_1;1;
+ITE_3;ITEM001;
+ITE_4;1;
+ITE_5;EA;
+ITE_6;100000.00;
+ITE_7;100000.00;
+ITE_10;Servicio de prueba;
+ITE_11;01;
+ITE_14;0.00;
+ITE_15;0.00;
+ITE_18;100000.00;
+(/ITE)`;
 
         // Debug: Mostrar primeros bytes en HEX para detectar caracteres invisibles
         const hexPreview = Buffer.from(sanitizedLayout.substring(0, 20), 'utf-8').toString('hex');
