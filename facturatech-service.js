@@ -110,8 +110,8 @@ class FacturatechService {
                 `ITE_15;${valorIva.toFixed(2)};`,
                 `ITE_18;${totalLinea.toFixed(2)};`,
                 '(/ITE)'
-            ].join('\r\n');
-        }).join('\r\n');
+            ].join('\n');
+        }).join('\n');
 
         // Construir Layout completo en formato Flat File
         const layout = [
@@ -170,7 +170,7 @@ class FacturatechService {
             `TOT_4;${totales.total.toFixed(2)};`,
             '(/TOT)',
             itemsLayout
-        ].join('\r\n');
+        ].join('\n');
 
         return layout;
     }
