@@ -390,7 +390,7 @@ class FacturatechService {
         const hexPreview = Buffer.from(sanitizedLayout.substring(0, 20), 'utf-8').toString('hex');
         console.log(`[Facturatech] Layout Start Hex: ${hexPreview}`);
 
-        const xmlBase64 = Buffer.from(sanitizedLayout, 'utf-8').toString('base64');
+        const xmlBase64 = Buffer.from(sanitizedLayout, 'latin1').toString('base64');
 
         // Log del layout COMPLETO para diagnóstico
         console.log('[Facturatech] ========== LAYOUT COMPLETO ==========');
