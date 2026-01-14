@@ -198,6 +198,13 @@ class FacturatechService {
         const maxAttempts = 5; // Aumentado para manejar bloqueos intermitentes de Cloudflare
         const envelope = this._crearSoapEnvelope(method, params);
 
+        // Log del envelope SOAP para diagnóstico (primeros 1000 chars)
+        if (attempt === 1) {
+            console.log('[Facturatech] ========== SOAP ENVELOPE ==========');
+            console.log(envelope.substring(0, 1500));
+            console.log('[Facturatech] ========== FIN SOAP ENVELOPE ==========');
+        }
+
         console.log(`[Facturatech] Ejecutando método: ${method} (intento ${attempt}/${maxAttempts})`);
         console.log(`[Facturatech] Endpoint: ${this.endpoint}`);
 
