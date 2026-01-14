@@ -15,9 +15,13 @@ class FacturatechService {
     constructor() {
         this.user = process.env.FACTURATECH_USER || '';
         this.password = this._hashPassword(process.env.FACTURATECH_PASSWORD || '');
-        this.env = process.env.FACTURATECH_ENV || 'demo';
-        this.endpoint = ENDPOINTS[this.env];
+        // Configuración por defecto a 'pro' si no se especifica, dado que el usuario 
+        // indica que sus credenciales son de producción.
+        this.env = process.env.FACTURATECH_ENV || 'pro';
+        this.endpoint = `https://ws.facturatech.co/v2/${this.env}/index.php?wsdl`;
 
+        console.log(`[Facturatech] Iniciando servicio en entorno: ${this.env}`);
+        console.log(`[Facturatech] WSDL Endpoint: ${this.endpoint}`);
         // Debug de variables de entorno (ofuscado)
         console.log('[Facturatech] Variables de entorno detectadas:', {
             USER: !!process.env.FACTURATECH_USER,
@@ -389,13 +393,13 @@ class FacturatechService {
 
         // Debug: Mostrar primeros bytes en HEX para detectar caracteres invisibles
         const hexPreview = Buffer.from(sanitizedLayout.substring(0, 20), 'utf-8').toString('hex');
-        this.log(`Layout Start Hex: ${hexPreview}`);
+        console.log(`Layout Start Hex: ${hexPreview}`);
 
         // Log del layout completo para debug crítico
-        this.log('========== LAYOUT COMPLETO ==========');
-        this.log(sanitizedLayout);
-        this.log('========== FIN LAYOUT ==========');
-        this.log(`Layout length: ${sanitizedLayout.length} chars`);
+        console.log('========== LAYOUT COMPLETO ==========');
+        console.log(sanitizedLayout);
+        console.log('========== FIN LAYOUT ==========');
+        console.log(`Layout length: ${sanitizedLayout.length} chars`);
 
         const layoutBase64 = Buffer.from(sanitizedLayout, 'utf-8').toString('base64');
         const passwordHash = this._hashPassword(this.password);
@@ -414,9 +418,9 @@ class FacturatechService {
         const envelope = this._crearSoapEnvelope(method, params, namespace);
 
         // Debug del Envelope
-        this.log('========== SOAP ENVELOPE ==========');
-        this.log(envelope);
-        this.log('========== FIN SOAP ENVELOPE ==========');
+        console.log('========== SOAP ENVELOPE ==========');
+        console.log(envelope);
+        console.log('========== FIN SOAP ENVELOPE ==========');
 
         // SOAPAction específico requerido por el servidor (verificado en Postman)
         // Formato: urn:https://ws.facturatech.co/v2/demo/#FtechAction.uploadInvoiceFileLayout
