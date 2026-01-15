@@ -63,9 +63,9 @@ class FacturatechService {
         // IMPORTANTE: La contraseña ya viene hasheada (SHA-256) desde el soporte de Facturatech.
         // NO volver a hashear, usar directamente.
         this.password = process.env.FACTURATECH_PASSWORD || '';
-        // Configuración por defecto a 'pro' si no se especifica, dado que el usuario 
-        // indica que sus credenciales son de producción.
-        this.env = process.env.FACTURATECH_ENV || 'pro';
+        // Entorno: usar la variable de entorno FACTURATECH_ENV
+        // Valores válidos: 'demo' o 'pro'
+        this.env = process.env.FACTURATECH_ENV || 'demo';
         this.endpoint = `https://ws.facturatech.co/v2/${this.env}/index.php?wsdl`;
 
         console.log(`[Facturatech] Iniciando servicio en entorno: ${this.env}`);
@@ -263,7 +263,8 @@ class FacturatechService {
             '(TAC)',
             `TAC_1:${EMISOR.responsabilidad};`,                 // Códigos de responsabilidad
             '(/TAC)',
-            itemsLayout
+            itemsLayout,
+            '(/FACTURA)'  // Cierre del elemento raíz
         ].join('\n');
 
         return layout;
