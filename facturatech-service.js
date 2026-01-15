@@ -60,7 +60,9 @@ const TIPOS_DOCUMENTO_DIAN = {
 class FacturatechService {
     constructor() {
         this.user = process.env.FACTURATECH_USER || '';
-        this.password = this._hashPassword(process.env.FACTURATECH_PASSWORD || '');
+        // IMPORTANTE: La contraseña ya viene hasheada (SHA-256) desde el soporte de Facturatech.
+        // NO volver a hashear, usar directamente.
+        this.password = process.env.FACTURATECH_PASSWORD || '';
         // Configuración por defecto a 'pro' si no se especifica, dado que el usuario 
         // indica que sus credenciales son de producción.
         this.env = process.env.FACTURATECH_ENV || 'pro';
@@ -72,6 +74,8 @@ class FacturatechService {
         console.log('[Facturatech] Variables de entorno detectadas:', {
             USER: !!process.env.FACTURATECH_USER,
             PASS: !!process.env.FACTURATECH_PASSWORD,
+            PASS_PREVIEW: this.password ? `${this.password.substring(0, 8)}...` : 'vacío',
+            PASS_LENGTH: this.password?.length || 0,
             PROXY: !!process.env.FACTURATECH_PROXY_URL,
             PROXY_VAL: process.env.FACTURATECH_PROXY_URL ? (process.env.FACTURATECH_PROXY_URL.substring(0, 7) + '...') : 'undefined'
         });
