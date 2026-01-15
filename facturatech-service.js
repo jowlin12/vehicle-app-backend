@@ -489,24 +489,22 @@ class FacturatechService {
 
         // ================================================================
         // IMPORTANTE: Según la Figura 16 del manual de Facturatech,
-        // el layout se envía en TEXTO PLANO, NO en Base64.
-        // La imagen muestra: <layout>[FACTURA](ENC)ENC_1:INVOIC;...
+        // el layout se envía en TEXTO PLANO SIN SALTOS DE LÍNEA.
+        // Todo debe ir en una sola línea.
         // ================================================================
 
-        // Opción 1: Probar primero con texto plano (como muestra el manual)
-        // Opción 2: Si falla, probar con Base64
+        // Eliminar saltos de línea - enviar todo en una sola línea
+        const layoutOneLine = sanitizedLayout.replace(/\r?\n/g, '');
 
-        // Probamos con texto plano primero
-        const layoutToSend = sanitizedLayout;
-
-        console.log('[Facturatech] Enviando layout en TEXTO PLANO (según manual Figura 16)');
-        console.log(`[Facturatech] Layout preview: ${layoutToSend.substring(0, 100)}...`);
+        console.log('[Facturatech] Enviando layout en UNA SOLA LÍNEA (sin saltos)');
+        console.log(`[Facturatech] Layout preview: ${layoutOneLine.substring(0, 150)}...`);
+        console.log(`[Facturatech] Layout ends with: ...${layoutOneLine.substring(layoutOneLine.length - 50)}`);
 
         // NOTA: this.password YA está hasheada en el constructor, no hashear de nuevo
         const params = {
             username: this.user,
             password: this.password,  // Ya es hash SHA256
-            layout: layoutToSend      // Texto plano, NO Base64
+            layout: layoutOneLine     // Texto plano SIN saltos de línea
         };
 
         // Namespace según manual
