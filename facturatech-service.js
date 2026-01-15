@@ -131,12 +131,19 @@ class FacturatechService {
     /**
      * Genera el Layout en formato Flat File (Archivo Plano) requerido por Facturatech
      * 
-     * IMPORTANTE: El método uploadInvoiceFileLayout NO acepta XML.
-     * Usa formato propietario: [FACTURA], (SECCION), CAMPO;VALOR;
+     * IMPORTANTE: El método uploadInvoiceFileLayout usa formato propietario.
+     * Formato: CAMPO:VALOR; (dos puntos entre campo y valor, punto y coma al final)
+     * 
+     * Basado en el manual oficial de Facturatech - Figura 16
      */
     generarXmlLayout(adquiriente, items, totales, numeroFactura, referencia = '') {
         const fechaActual = new Date().toISOString().split('T')[0];
         const horaActual = new Date().toTimeString().split(' ')[0];
+
+        // Fecha de vencimiento (30 días después por defecto para crédito)
+        const fechaVencimiento = new Date();
+        fechaVencimiento.setDate(fechaVencimiento.getDate() + 30);
+        const fechaVenc = fechaVencimiento.toISOString().split('T')[0];
 
         // Obtener código DIAN del tipo de documento
         const tipoDocDian = TIPOS_DOCUMENTO_DIAN[adquiriente.tipoDocumento] || '13';
@@ -145,89 +152,117 @@ class FacturatechService {
         const clean = (val) => {
             return String(val || '')
                 .replace(/;/g, ',')
+                .replace(/:/g, '-')
                 .replace(/\n/g, ' ')
                 .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // Eliminar acentos
                 .trim();
         };
 
-        // Generar items en formato Layout
+        // Generar items en formato Layout correcto
+        // Formato: ITE_X:VALOR;
         const itemsLayout = items.map((item, index) => {
             const subtotal = item.cantidad * item.precioUnitario;
             const valorIva = subtotal * (item.porcentajeIva / 100);
             const totalLinea = subtotal + valorIva;
+            const codigoItem = clean(item.codigo || `ITEM${index + 1}`).substring(0, 20);
 
             return [
                 '(ITE)',
-                `ITE_1;${index + 1};`,
-                `ITE_3;${clean(item.codigo || `ITEM${index + 1}`).substring(0, 20)};`,
-                `ITE_4;${item.cantidad};`,
-                `ITE_5;EA;`,
-                `ITE_6;${item.precioUnitario.toFixed(2)};`,
-                `ITE_7;${subtotal.toFixed(2)};`,
-                `ITE_10;${clean(item.descripcion)};`,
-                `ITE_11;01;`,
-                `ITE_14;${item.porcentajeIva.toFixed(2)};`,
-                `ITE_15;${valorIva.toFixed(2)};`,
-                `ITE_18;${totalLinea.toFixed(2)};`,
+                `ITE_1:${index + 1};`,
+                `ITE_3:${codigoItem};`,
+                `ITE_4:${item.cantidad};`,
+                `ITE_5:EA;`,
+                `ITE_6:${item.precioUnitario.toFixed(2)};`,
+                `ITE_7:${subtotal.toFixed(2)};`,
+                `ITE_10:${clean(item.descripcion)};`,
+                `ITE_11:01;`, // Tipo de precio (01 = precio unitario)
+                `ITE_14:${item.porcentajeIva.toFixed(2)};`,
+                `ITE_15:${valorIva.toFixed(2)};`,
+                `ITE_18:${totalLinea.toFixed(2)};`,
                 '(/ITE)'
             ].join('\n');
         }).join('\n');
 
-        // Construir Layout completo en formato Flat File
+        // ================================================================
+        // Construir Layout completo según Figura 16 del manual Facturatech
+        // Formato: CAMPO:VALOR;
+        // ================================================================
         const layout = [
             '[FACTURA]',
             '(ENC)',
-            'ENC_1;01;',
-            `ENC_2;${NUMERACION.prefijo};`,
-            `ENC_3;${numeroFactura};`,
-            `ENC_4;${fechaActual};`,
-            `ENC_5;${horaActual};`,
-            `ENC_6;${fechaActual};`,
-            'ENC_7;01;',
-            'ENC_9;COP;',
-            'ENC_10;10;',
-            `ENC_16;${clean(referencia)};`,
+            'ENC_1:INVOIC;',                                    // Tipo documento (INVOIC = factura)
+            `ENC_2:${EMISOR.nit};`,                             // NIT del emisor
+            `ENC_3:${numeroFactura};`,                          // Número/Folio de factura
+            'ENC_4:UBL 2.1;',                                   // Versión UBL
+            'ENC_5:DIAN 2.1;',                                  // Versión DIAN
+            'ENC_6:01;',                                        // Tipo de factura (01 = Factura de venta)
+            `ENC_7:${fechaActual};`,                            // Fecha de emisión
+            `ENC_8:${horaActual};`,                             // Hora de emisión
+            'ENC_9:01;',                                        // Tipo de operación (01 = contado, 02 = crédito)
+            `ENC_10:COP;`,                                      // Moneda
+            `ENC_15:${items.length};`,                          // Cantidad de líneas/items
+            `ENC_16:${fechaVenc};`,                             // Fecha de vencimiento
+            `ENC_20:${adquiriente.formaPago || '1'};`,          // Forma de pago (1=contado, 2=crédito)
+            `ENC_21:10;`,                                       // Medio de pago (10 = efectivo)
+            `ENC_22:${clean(referencia)};`,                     // Referencia/Observaciones
             '(/ENC)',
             '(EMI)',
-            `EMI_1;${EMISOR.tipoPersona};`,
-            `EMI_2;${EMISOR.nit};`,
-            `EMI_3;${EMISOR.dv};`,
-            `EMI_6;${clean(EMISOR.razonSocial)};`,
-            `EMI_7;${clean(EMISOR.nombreComercial)};`,
-            `EMI_10;${clean(EMISOR.direccion)};`,
-            `EMI_11;${EMISOR.codigoCiudad};`,
-            `EMI_12;${clean(EMISOR.ciudad)};`,
-            `EMI_13;${clean(EMISOR.departamento)};`,
-            `EMI_14;${EMISOR.codigoDepto};`,
-            `EMI_15;${EMISOR.pais};`,
-            `EMI_19;${EMISOR.telefono};`,
-            `EMI_23;${EMISOR.responsabilidad};`,
-            `EMI_24;${EMISOR.regimen};`,
+            `EMI_1:${EMISOR.tipoPersona};`,                     // Tipo de persona (1=jurídica, 2=natural)
+            `EMI_2:${EMISOR.nit};`,                             // NIT
+            `EMI_3:31;`,                                        // Tipo de documento (31 = NIT)
+            `EMI_4:${EMISOR.dv};`,                              // Dígito de verificación
+            `EMI_6:${clean(EMISOR.razonSocial)};`,              // Razón social
+            `EMI_7:${clean(EMISOR.nombreComercial)};`,          // Nombre comercial
+            `EMI_10:${clean(EMISOR.direccion)};`,               // Dirección
+            `EMI_11:${EMISOR.codigoDepto};`,                    // Código departamento
+            `EMI_12:${clean(EMISOR.ciudad)};`,                  // Ciudad (nombre)
+            `EMI_13:${clean(EMISOR.departamento)};`,            // Departamento (nombre)
+            `EMI_14:${EMISOR.codigoCiudad};`,                   // Código municipio
+            `EMI_15:${EMISOR.pais};`,                           // País
+            `EMI_18:${clean(EMISOR.direccion)};`,               // Dirección fiscal
+            `EMI_19:${clean(EMISOR.departamento)};`,            // Departamento fiscal
+            `EMI_21:Colombia;`,                                 // País nombre
+            `EMI_22:${EMISOR.telefono};`,                       // Teléfono
+            `EMI_23:${EMISOR.responsabilidad};`,                // Responsabilidades fiscales
+            `EMI_24:${clean(EMISOR.nombreComercial)};`,         // Nombre del contacto
+            `EMI_25:${EMISOR.regimen};`,                        // Régimen fiscal
             '(/EMI)',
             '(ADQ)',
-            `ADQ_1;${adquiriente.tipoPersona || '2'};`,
-            `ADQ_2;${adquiriente.numeroDocumento};`,
-            `ADQ_3;${adquiriente.dv || ''};`,
-            `ADQ_5;${tipoDocDian};`,
-            `ADQ_6;${clean(adquiriente.razonSocial)};`,
-            `ADQ_7;${clean(adquiriente.nombreComercial || adquiriente.razonSocial)};`,
-            `ADQ_10;${clean(adquiriente.direccion)};`,
-            `ADQ_11;${adquiriente.codigoCiudad || '54001'};`,
-            `ADQ_12;${clean(adquiriente.ciudad || 'Cúcuta')};`,
-            `ADQ_13;${clean(adquiriente.departamento || 'Norte de Santander')};`,
-            `ADQ_14;${adquiriente.codigoDepto || '54'};`,
-            'ADQ_15;CO;',
-            `ADQ_19;${adquiriente.telefono || ''};`,
-            `ADQ_22;${adquiriente.email || ''};`,
-            `ADQ_23;${adquiriente.responsabilidad || 'R-99-PN'};`,
-            `ADQ_24;${adquiriente.regimen || '49'};`,
+            `ADQ_1:${adquiriente.tipoPersona || '2'};`,         // Tipo persona
+            `ADQ_2:${adquiriente.numeroDocumento};`,            // Número documento
+            `ADQ_3:${tipoDocDian};`,                            // Tipo documento DIAN
+            `ADQ_4:${adquiriente.dv || ''};`,                   // DV (si aplica)
+            `ADQ_6:${clean(adquiriente.razonSocial)};`,         // Razón social/Nombre
+            `ADQ_7:${clean(adquiriente.nombreComercial || adquiriente.razonSocial)};`,
+            `ADQ_10:${clean(adquiriente.direccion)};`,          // Dirección
+            `ADQ_11:${adquiriente.codigoDepto || '54'};`,       // Código departamento
+            `ADQ_12:${clean(adquiriente.ciudad || 'Cucuta')};`, // Ciudad
+            `ADQ_13:${clean(adquiriente.departamento || 'Norte de Santander')};`,
+            `ADQ_14:${adquiriente.codigoCiudad || '54001'};`,   // Código municipio
+            `ADQ_15:${EMISOR.pais};`,                           // País
+            `ADQ_18:${clean(adquiriente.direccion)};`,          // Dirección fiscal
+            `ADQ_19:${clean(adquiriente.departamento || 'Norte de Santander')};`,
+            `ADQ_21:Colombia;`,                                 // País nombre
+            `ADQ_22:${adquiriente.telefono || ''};`,            // Teléfono
+            `ADQ_23:${adquiriente.responsabilidad || 'R-99-PN'};`, // Responsabilidad fiscal
+            `ADQ_24:${clean(adquiriente.razonSocial)};`,        // Nombre contacto
+            `ADQ_25:${adquiriente.regimen || '49'};`,           // Régimen fiscal
+            `ADQ_26:${adquiriente.email || ''};`,               // Email
             '(/ADQ)',
             '(TOT)',
-            `TOT_1;${totales.baseGravable.toFixed(2)};`,
-            'TOT_2;01;',
-            `TOT_3;${totales.iva.toFixed(2)};`,
-            `TOT_4;${totales.total.toFixed(2)};`,
+            `TOT_1:${totales.baseGravable.toFixed(2)};`,        // Base gravable
+            `TOT_2:COP;`,                                       // Moneda base
+            `TOT_3:${totales.total.toFixed(2)};`,               // Total a pagar
+            `TOT_4:COP;`,                                       // Moneda total
+            `TOT_5:${totales.baseGravable.toFixed(2)};`,        // Valor bruto
+            `TOT_6:COP;`,                                       // Moneda valor bruto
+            `TOT_7:${totales.iva.toFixed(2)};`,                 // Total IVA
+            `TOT_8:COP;`,                                       // Moneda IVA
             '(/TOT)',
+            // Sección de impuestos (TAC) - Responsabilidades fiscales
+            '(TAC)',
+            `TAC_1:${EMISOR.responsabilidad};`,                 // Códigos de responsabilidad
+            '(/TAC)',
             itemsLayout
         ].join('\n');
 
