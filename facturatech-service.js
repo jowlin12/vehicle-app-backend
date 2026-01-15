@@ -447,7 +447,8 @@ class FacturatechService {
         console.log('========== FIN LAYOUT ==========');
         console.log(`Layout length: ${sanitizedLayout.length} chars`);
 
-        const layoutBase64 = Buffer.from(sanitizedLayout, 'utf-8').toString('base64');
+        // WSDL especifica ISO-8859-1, probar latin1 encoding
+        const layoutBase64 = Buffer.from(sanitizedLayout, 'latin1').toString('base64');
 
         // NOTA: this.password YA está hasheada en el constructor, no hashear de nuevo
         const params = {
