@@ -456,9 +456,9 @@ class FacturatechService {
             layout: layoutBase64
         };
 
-        // Namespace correcto según WSDL y Postman: urn:https://ws.facturatech.co/v2/demo/ (o pro)
-        // NOTA: El WSDL define el targetNamespace como "urn:https://ws.facturatech.co/v2/demo/"
-        const namespace = `urn:https://ws.facturatech.co/v2/${this.env}/`;
+        // PRUEBA: Usar namespace simple como el test local que SÍ funcionó
+        // El test local usa 'urn:FacturaTech' independientemente del endpoint
+        const namespace = 'urn:FacturaTech';
         const method = 'FtechAction.uploadInvoiceFileLayout';
 
         const envelope = this._crearSoapEnvelope(method, params, namespace);
@@ -468,9 +468,8 @@ class FacturatechService {
         console.log(envelope);
         console.log('========== FIN SOAP ENVELOPE ==========');
 
-        // SOAPAction específico requerido por el servidor (verificado en Postman)
-        // Formato: urn:https://ws.facturatech.co/v2/demo/#FtechAction.uploadInvoiceFileLayout
-        const soapAction = `"${namespace}#${method}"`;
+        // SOAPAction simple como test local
+        const soapAction = `"urn:FacturaTech#${method}"`;
 
         return this._ejecutarSoap(method, envelope, soapAction);
     }
