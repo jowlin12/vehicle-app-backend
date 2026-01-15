@@ -486,18 +486,29 @@ class FacturatechService {
         console.log('========== FIN LAYOUT ==========');
         console.log(`Layout length: ${sanitizedLayout.length} chars`);
 
-        // WSDL especifica ISO-8859-1, probar latin1 encoding
-        const layoutBase64 = Buffer.from(sanitizedLayout, 'latin1').toString('base64');
+        // ================================================================
+        // IMPORTANTE: Según la Figura 16 del manual de Facturatech,
+        // el layout se envía en TEXTO PLANO, NO en Base64.
+        // La imagen muestra: <layout>[FACTURA](ENC)ENC_1:INVOIC;...
+        // ================================================================
+
+        // Opción 1: Probar primero con texto plano (como muestra el manual)
+        // Opción 2: Si falla, probar con Base64
+
+        // Probamos con texto plano primero
+        const layoutToSend = sanitizedLayout;
+
+        console.log('[Facturatech] Enviando layout en TEXTO PLANO (según manual Figura 16)');
+        console.log(`[Facturatech] Layout preview: ${layoutToSend.substring(0, 100)}...`);
 
         // NOTA: this.password YA está hasheada en el constructor, no hashear de nuevo
         const params = {
             username: this.user,
             password: this.password,  // Ya es hash SHA256
-            layout: layoutBase64
+            layout: layoutToSend      // Texto plano, NO Base64
         };
 
-        // PRUEBA: Usar namespace simple como el test local que SÍ funcionó
-        // El test local usa 'urn:FacturaTech' independientemente del endpoint
+        // Namespace según manual
         const namespace = 'urn:FacturaTech';
         const method = 'FtechAction.uploadInvoiceFileLayout';
 
@@ -508,7 +519,7 @@ class FacturatechService {
         console.log(envelope);
         console.log('========== FIN SOAP ENVELOPE ==========');
 
-        // SOAPAction simple como test local
+        // SOAPAction
         const soapAction = `"urn:FacturaTech#${method}"`;
 
         return this._ejecutarSoap(method, envelope, soapAction);
