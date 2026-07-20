@@ -977,6 +977,12 @@ app.post('/api/clientes-fiscales', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+// Vercel carga y ejecuta la aplicación exportada como una Function.
+// El listener se crea únicamente cuando se inicia el servidor directamente.
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
+
+module.exports = app;
