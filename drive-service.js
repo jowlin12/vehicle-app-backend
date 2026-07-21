@@ -186,6 +186,20 @@ function createDriveService(httpClient = axios, env = process.env) {
         tokenCache = null;
         return driveRequest(options, false);
       }
+      if (error.code === 'ECONNABORTED') {
+        throw serviceError('Google Drive tardó demasiado en responder.', 504);
+      }
+      if (error.response?.status === 403) {
+        const detail =
+          error.response?.data?.error?.message ||
+          error.response?.data?.error ||
+          error.message;
+        console.error('[Drive] Google rechazó la operación:', detail);
+        throw serviceError(
+          'Google Drive rechazó la operación. Verifica los permisos de la cuenta OAuth y de la carpeta configurada.',
+          502
+        );
+      }
       throw error;
     }
   }
@@ -271,14 +285,20 @@ function createDriveService(httpClient = axios, env = process.env) {
     if (!Buffer.isBuffer(buffer) || !buffer.length) {
       throw serviceError('El contenido del archivo no es válido.', 400);
     }
-    if (typeof mimeType !== 'string' || !mimeType.trim()) {
+    if (
+      typeof mimeType !== 'string' ||
+      !/^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i.test(
+        mimeType
+      )
+    ) {
       throw serviceError('El tipo del archivo no es válido.', 400);
     }
 
+    const validatedFileName = safeFileName(fileName);
     const rootId = rootFolderId(root);
     const parentId = await ensureFolderPath(rootId, folderPath);
     const metadata = {
-      name: safeFileName(fileName),
+      name: validatedFileName,
       parents: [parentId],
       appProperties: {
         vehicleAppManaged: 'true',

@@ -29,10 +29,6 @@ test('crea la ruta y sube el archivo privado con OAuth', async () => {
       if (options.method === 'GET' && options.url.endsWith('/files')) {
         return {data: {files: []}};
       }
-      if (options.method === 'POST' && options.url.endsWith('/drive/v3/files')) {
-        folderNumber += 1;
-        return {data: {id: `folder-${folderNumber}`, name: options.data.name}};
-      }
       if (
         options.method === 'POST' &&
         options.url.includes('/upload/drive/v3/files')
@@ -42,6 +38,10 @@ test('crea la ruta y sube el archivo privado con OAuth', async () => {
         assert.match(options.data.toString(), /"vehicleAppManaged":"true"/);
         assert.match(options.data.toString(), /private-image\.jpg/);
         return {data: {id: 'uploaded-file', name: 'private-image.jpg'}};
+      }
+      if (options.method === 'POST' && options.url.endsWith('/drive/v3/files')) {
+        folderNumber += 1;
+        return {data: {id: `folder-${folderNumber}`, name: options.data.name}};
       }
       throw new Error(`Llamada inesperada: ${options.method} ${options.url}`);
     },
@@ -145,3 +145,52 @@ test('rechaza raíces, rutas e identificadores no permitidos antes de llamar a G
   );
   assert.equal(networkCalls, 0);
 });
+
+test('convierte errores de permisos y timeout de Google en respuestas útiles', async () => {
+  const environment = testEnvironment();
+
+  for (const expected of [
+    {
+      failure: {
+        response: {
+          status: 403,
+          data: {error: {message: 'Insufficient permissions'}},
+        },
+      },
+      statusCode: 502,
+      message: /permisos/i,
+    },
+    {
+      failure: {code: 'ECONNABORTED'},
+      statusCode: 504,
+      message: /tardó demasiado/i,
+    },
+  ]) {
+    const httpClient = {
+      async post() {
+        return {data: {access_token: 'access-token', expires_in: 3600}};
+      },
+      async request() {
+        throw failureAsError(expected.failure);
+      },
+    };
+    const service = createDriveService(httpClient, environment);
+
+    await assert.rejects(
+      service.uploadPrivateFile({
+        buffer: Buffer.from('image'),
+        fileName: 'image.jpg',
+        mimeType: 'image/jpeg',
+        folderPath: 'ABC123/frontal',
+        root: 'vehicles',
+      }),
+      error =>
+        error.statusCode === expected.statusCode &&
+        expected.message.test(error.message)
+    );
+  }
+});
+
+function failureAsError(values) {
+  return Object.assign(new Error('Google request failed'), values);
+}
