@@ -1,7 +1,10 @@
 const assert = require('node:assert/strict');
 const {Readable} = require('node:stream');
 const test = require('node:test');
-const {createDriveService} = require('./drive-service.js');
+const {
+  createDriveService,
+  vehiclePhotoFolderPath,
+} = require('./drive-service.js');
 
 function testEnvironment() {
   return {
@@ -12,6 +15,25 @@ function testEnvironment() {
     GOOGLE_DRIVE_INVOICE_FOLDER_ID: 'invoice-root',
   };
 }
+
+test('organiza las fotos por placa y categoría como en Drive', () => {
+  assert.equal(
+    vehiclePhotoFolderPath('a01-a6e', ' Frontal '),
+    'A01A6E/frontal'
+  );
+  assert.equal(
+    vehiclePhotoFolderPath('A01AA6E', 'cojines'),
+    'A01AA6E/cojines'
+  );
+  assert.throws(
+    () => vehiclePhotoFolderPath('ABC123', 'documentos'),
+    error => error.statusCode === 400
+  );
+  assert.throws(
+    () => vehiclePhotoFolderPath('../', 'motor'),
+    error => error.statusCode === 400
+  );
+});
 
 test('crea la ruta y sube el archivo privado con OAuth', async () => {
   const calls = [];
@@ -36,7 +58,7 @@ test('crea la ruta y sube el archivo privado con OAuth', async () => {
         assert.equal(options.params.uploadType, 'multipart');
         assert.ok(Buffer.isBuffer(options.data));
         assert.match(options.data.toString(), /"vehicleAppManaged":"true"/);
-        assert.match(options.data.toString(), /private-image\.jpg/);
+        assert.match(options.data.toString(), /(?:private|second)-image\.jpg/);
         return {data: {id: 'uploaded-file', name: 'private-image.jpg'}};
       }
       if (options.method === 'POST' && options.url.endsWith('/drive/v3/files')) {
@@ -58,6 +80,18 @@ test('crea la ruta y sube el archivo privado con OAuth', async () => {
 
   assert.equal(result.id, 'uploaded-file');
   assert.equal(folderNumber, 2);
+  assert.equal(
+    calls.filter(call => call.url.endsWith('/files') && call.method === 'GET').length,
+    2
+  );
+
+  await service.uploadPrivateFile({
+    buffer: Buffer.from('second-image'),
+    fileName: 'second-image.jpg',
+    mimeType: 'image/jpeg',
+    folderPath: 'ABC123/externas',
+    root: 'vehicles',
+  });
   assert.equal(
     calls.filter(call => call.url.endsWith('/files') && call.method === 'GET').length,
     2

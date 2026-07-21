@@ -5,6 +5,15 @@ const DRIVE_UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
 const MAX_FOLDER_DEPTH = 100;
+const VEHICLE_PHOTO_CATEGORIES = new Set([
+  'ac',
+  'cojines',
+  'detalles',
+  'frontal',
+  'guantera',
+  'motor',
+  'tablero',
+]);
 
 function serviceError(message, statusCode) {
   const error = new Error(message);
@@ -12,9 +21,29 @@ function serviceError(message, statusCode) {
   return error;
 }
 
+function vehiclePhotoFolderPath(vehiclePlate, category) {
+  const normalizedPlate = String(vehiclePlate || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+  const normalizedCategory = String(category || '').trim().toLowerCase();
+
+  if (normalizedPlate.length < 5 || normalizedPlate.length > 10) {
+    throw serviceError('La placa del vehículo no es válida.', 400);
+  }
+  if (!VEHICLE_PHOTO_CATEGORIES.has(normalizedCategory)) {
+    throw serviceError('La categoría de la foto no está permitida.', 400);
+  }
+
+  return `${normalizedPlate}/${normalizedCategory}`;
+}
+
 function createDriveService(httpClient = axios, env = process.env) {
   let tokenCache = null;
   let tokenRequest = null;
+  // Vercel puede reutilizar la instancia entre peticiones. Mantener los IDs
+  // evita buscar de nuevo la placa y la categoría para cada foto.
+  const folderCache = new Map();
 
   function oauthConfig() {
     const config = {
@@ -247,12 +276,20 @@ function createDriveService(httpClient = axios, env = process.env) {
     let parentId = rootId;
 
     for (const segment of folderSegments(folderPath)) {
+      const cacheKey = `${parentId}\u0000${segment}`;
+      const cachedFolderId = folderCache.get(cacheKey);
+      if (cachedFolderId) {
+        parentId = cachedFolderId;
+        continue;
+      }
+
       const existing = await findFolder(parentId, segment);
       const folder = existing || (await createFolder(parentId, segment));
       if (!folder?.id) {
         throw new Error(`Google Drive no creó la carpeta "${segment}".`);
       }
       parentId = folder.id;
+      folderCache.set(cacheKey, parentId);
     }
 
     return parentId;
@@ -410,4 +447,5 @@ const driveService = createDriveService();
 module.exports = {
   ...driveService,
   createDriveService,
+  vehiclePhotoFolderPath,
 };

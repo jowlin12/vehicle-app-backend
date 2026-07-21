@@ -12,6 +12,7 @@ const {
   uploadPrivateFile,
   downloadPrivateFile,
   deletePrivateFile,
+  vehiclePhotoFolderPath,
 } = require('./drive-service.js');
 
 const app = express();
@@ -38,8 +39,16 @@ app.use('/api', protect);
 
 app.post('/api/drive/upload', async (req, res) => {
   try {
-    const {base64, fileName, mimeType, folderPath, root} = req.body || {};
-    if (!base64 || !fileName || !folderPath || !root) {
+    const {
+      base64,
+      fileName,
+      mimeType,
+      folderPath,
+      root,
+      vehiclePlate,
+      category,
+    } = req.body || {};
+    if (!base64 || !fileName || !root) {
       return res.status(400).json({error: 'Datos de archivo incompletos.'});
     }
     if (!['image/jpeg', 'image/png', 'image/webp', 'image/heic'].includes(mimeType)) {
@@ -51,14 +60,30 @@ app.post('/api/drive/upload', async (req, res) => {
       return res.status(413).json({error: 'La imagen excede el máximo de 2.8 MB.'});
     }
 
+    let resolvedFolderPath = folderPath;
+    if (root === 'vehicles') {
+      const legacySegments =
+        typeof folderPath === 'string' ? folderPath.split('/') : [];
+      resolvedFolderPath = vehiclePhotoFolderPath(
+        vehiclePlate || legacySegments[0],
+        category || (legacySegments.length === 2 ? legacySegments[1] : null)
+      );
+    }
+    if (!resolvedFolderPath) {
+      return res.status(400).json({error: 'La ruta de almacenamiento es requerida.'});
+    }
+
     const file = await uploadPrivateFile({
       buffer,
       fileName,
       mimeType,
-      folderPath,
+      folderPath: resolvedFolderPath,
       root,
     });
-    return res.status(201).json({fileId: file.id});
+    return res.status(201).json({
+      fileId: file.id,
+      folderPath: resolvedFolderPath,
+    });
   } catch (error) {
     console.error('[Drive] Error subiendo archivo:', error.response?.data || error.message);
     return res.status(error.statusCode || 500).json({
