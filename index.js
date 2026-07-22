@@ -47,6 +47,7 @@ app.post('/api/drive/upload', async (req, res) => {
       root,
       vehiclePlate,
       category,
+      uploadRequestId,
     } = req.body || {};
     if (!base64 || !fileName || !root) {
       return res.status(400).json({error: 'Datos de archivo incompletos.'});
@@ -79,6 +80,7 @@ app.post('/api/drive/upload', async (req, res) => {
       mimeType,
       folderPath: resolvedFolderPath,
       root,
+      uploadRequestId,
     });
     return res.status(201).json({
       fileId: file.id,

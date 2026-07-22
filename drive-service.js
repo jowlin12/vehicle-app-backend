@@ -146,6 +146,17 @@ function createDriveService(httpClient = axios, env = process.env) {
     return fileId;
   }
 
+  function safeUploadRequestId(uploadRequestId) {
+    if (uploadRequestId == null) return null;
+    if (
+      typeof uploadRequestId !== 'string' ||
+      !/^[A-Za-z0-9_-]{8,100}$/.test(uploadRequestId)
+    ) {
+      throw serviceError('El identificador de la subida no es válido.', 400);
+    }
+    return uploadRequestId;
+  }
+
   function escapeDriveQueryValue(value) {
     return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
   }
@@ -318,6 +329,7 @@ function createDriveService(httpClient = axios, env = process.env) {
     mimeType,
     folderPath,
     root,
+    uploadRequestId,
   }) {
     if (!Buffer.isBuffer(buffer) || !buffer.length) {
       throw serviceError('El contenido del archivo no es válido.', 400);
@@ -332,14 +344,38 @@ function createDriveService(httpClient = axios, env = process.env) {
     }
 
     const validatedFileName = safeFileName(fileName);
+    const validatedRequestId = safeUploadRequestId(uploadRequestId);
     const rootId = rootFolderId(root);
     const parentId = await ensureFolderPath(rootId, folderPath);
+    if (validatedRequestId) {
+      const query = [
+        `'${escapeDriveQueryValue(parentId)}' in parents`,
+        `appProperties has { key='uploadRequestId' and value='${escapeDriveQueryValue(validatedRequestId)}' }`,
+        'trashed = false',
+      ].join(' and ');
+      const existing = await driveRequest({
+        method: 'GET',
+        url: `${DRIVE_API_URL}/files`,
+        params: {
+          q: query,
+          fields: 'files(id,name,mimeType,size,parents)',
+          pageSize: 1,
+          spaces: 'drive',
+          supportsAllDrives: true,
+          includeItemsFromAllDrives: true,
+        },
+      });
+      if (existing.data?.files?.[0]) return existing.data.files[0];
+    }
     const metadata = {
       name: validatedFileName,
       parents: [parentId],
       appProperties: {
         vehicleAppManaged: 'true',
         storageRoot: root,
+        ...(validatedRequestId
+          ? {uploadRequestId: validatedRequestId}
+          : {}),
       },
     };
     const multipart = multipartBody(metadata, buffer, mimeType);

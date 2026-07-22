@@ -98,6 +98,41 @@ test('crea la ruta y sube el archivo privado con OAuth', async () => {
   );
 });
 
+test('reutiliza la foto creada cuando se reintenta la misma subida', async () => {
+  let uploadCalls = 0;
+  const httpClient = {
+    async post() {
+      return {data: {access_token: 'access-token', expires_in: 3600}};
+    },
+    async request(options) {
+      if (options.method === 'GET' && options.url.endsWith('/files')) {
+        if (options.params.q.includes('appProperties')) {
+          assert.match(options.params.q, /upload-request-123/);
+          return {data: {files: [{id: 'existing-photo', name: 'image.jpg'}]}};
+        }
+        return {data: {files: [{id: 'existing-folder', name: 'folder'}]}};
+      }
+      if (options.url.includes('/upload/drive/v3/files')) {
+        uploadCalls += 1;
+      }
+      throw new Error(`Llamada inesperada: ${options.method} ${options.url}`);
+    },
+  };
+  const service = createDriveService(httpClient, testEnvironment());
+
+  const result = await service.uploadPrivateFile({
+    buffer: Buffer.from('image-content'),
+    fileName: 'image.jpg',
+    mimeType: 'image/jpeg',
+    folderPath: 'ABC123/frontal',
+    root: 'vehicles',
+    uploadRequestId: 'upload-request-123',
+  });
+
+  assert.equal(result.id, 'existing-photo');
+  assert.equal(uploadCalls, 0);
+});
+
 test('solo descarga y elimina archivos ubicados bajo una raíz configurada', async () => {
   const mediaStream = Readable.from(['image']);
   const calls = [];
