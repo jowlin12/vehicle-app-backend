@@ -8,6 +8,7 @@ const handlebars = require('handlebars');
 const FacturatechService = require('./facturatech-service.js');
 const { NUMERACION } = require('./facturatech-config.js');
 const { protect, requireAdmin } = require('./middleware.js');
+const { extraerFormatoPorVoz } = require('./voz-extraer.js');
 const {
   uploadPrivateFile,
   downloadPrivateFile,
@@ -36,6 +37,9 @@ const PORT = process.env.PORT || 5000;
 
 // Todos los endpoints de negocio requieren una sesión válida de Supabase.
 app.use('/api', protect);
+
+// Modo dictado: convierte lo que dijo el mecánico en campos del formato.
+app.post('/api/voz/extraer-formato', extraerFormatoPorVoz);
 
 app.post('/api/drive/upload', async (req, res) => {
   try {

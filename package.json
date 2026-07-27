@@ -5,12 +5,14 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "node --test drive-service.test.js"
+    "test": "node --test drive-service.test.js",
+    "verificar:voz": "node --env-file=.env verificar-voz.js"
   },
   "engines": {
     "node": "22.x"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.115.0",
     "@supabase/supabase-js": "^2.50.2",
     "axios": "^1.10.0",
     "cors": "^2.8.5",
