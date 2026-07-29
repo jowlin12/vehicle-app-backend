@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "node --test drive-service.test.js",
+    "build:invoice-assets": "node scripts/build-invoice-assets.js",
+    "test": "node --test drive-service.test.js invoice-template.test.js",
     "verificar:voz": "node --env-file=.env verificar-voz.js"
   },
   "engines": {

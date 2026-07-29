@@ -1,0 +1,436 @@
+/* --- Fuente Inter ---
+   La fuente NO se importa por red. Se incrusta como @font-face con la fuente
+   en base64 al generar invoice-assets.js (ver scripts/build-invoice-assets.js).
+   Si se importara desde fonts.googleapis.com, el PDF se renderizaría antes de
+   que la fuente termine de descargar y saldría con la tipografía de respaldo. */
+
+/* --- Reset Básico y Configuración Global --- */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html {
+    font-size: 10pt;
+    line-height: 1.5;
+    background-color: #F6F8FC;
+    -webkit-print-color-adjust: exact;
+    color-adjust: exact;
+}
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #5E6470;
+    background-color: #F9FAFC;
+    margin: 0 auto;
+    padding: 11mm 18mm 16mm 18mm; /* Aumentado a 18mm para separar del borde */
+    width: 210mm;
+    height: 297mm;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+}
+
+/* --- Títulos --- */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    font-weight: 600;
+    color: #1A1C21;
+    margin-bottom: 0;
+}
+
+h1 {
+    font-size: 28px;
+    line-height: 32px;
+    letter-spacing: -0.02em;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+p {
+    margin-bottom: 0;
+}
+
+strong {
+    font-weight: 600;
+    color: #1A1C21;
+}
+
+/* --- Cabecera (Figma: y:32) --- */
+.header-section {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    height: 18mm;
+    /* 50px logo height equivalent */
+    margin-bottom: 11mm;
+    /* 30px equivalent to reach y:112 */
+}
+
+.invoice-title-block {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.invoice-id {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: #5E6470;
+    line-height: 16px;
+}
+
+.logo {
+    height: 20mm;
+    /* Agrandado a 75px */
+    width: auto;
+    max-width: 45mm;
+    /* Agrandado a 170px */
+    object-fit: contain;
+}
+
+/* --- Rejilla de Información en 3 Columnas (Figma: y:112 a y:224) --- */
+.info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1.1fr 1fr; /* Fluido para adaptarse a los márgenes */
+    border-top: 0.5px solid #D7DAE0;
+    border-bottom: 0.5px solid #D7DAE0;
+    height: 40mm;
+    /* 112px */
+    box-sizing: border-box;
+}
+
+.info-col {
+    padding: 18px 24px;
+    /* Cambiado a px para comportamiento estable en todos los navegadores */
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    /* 8px de separación interna */
+    box-sizing: border-box;
+    justify-content: flex-start;
+}
+
+.info-col:first-child {
+    padding-left: 0;
+}
+
+.info-col:last-child {
+    padding-right: 0;
+}
+
+.info-col:not(:last-child) {
+    border-right: 0.5px solid #D7DAE0;
+}
+
+.col-title {
+    font-size: 10px;
+    font-weight: 600;
+    color: #1A1C21;
+    line-height: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.col-content {
+    font-size: 10px;
+    font-weight: 400;
+    line-height: 14px;
+    color: #5E6470;
+}
+
+.col-content strong {
+    font-size: 10px;
+    font-weight: 600;
+    color: #5E6470;
+}
+
+.client-vehicle-info {
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-left: 0;
+    /* Removido para alinear perfectamente con el nombre del cliente */
+    padding-right: 16px;
+    /* Empuja los valores hacia la izquierda para dar suficiente espacio */
+}
+
+.client-vehicle-info .info-row {
+    display: flex;
+    gap: 8px;
+    font-size: 9.5px;
+    line-height: 13px;
+}
+
+.client-vehicle-info .info-label {
+    font-weight: 600;
+    color: #1A1C21;
+    white-space: nowrap;
+}
+
+.client-vehicle-info .info-value {
+    color: #5E6470;
+}
+
+.client-detail {
+    margin-top: 4px;
+    font-size: 9.5px;
+    color: #5E6470;
+}
+
+/* --- Tabla de Ítems (Figma: table starts at y:264) --- */
+.invoice-items {
+    margin-top: 14mm;
+    /* 40px gap between grid bottom y:224 and table y:264 */
+    margin-bottom: 0;
+}
+
+.items-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10px;
+}
+
+.items-table th {
+    color: #1A1C21;
+    font-weight: 600;
+    font-size: 10px;
+    line-height: 14px;
+    padding: 0 0 3mm 0;
+    text-align: left;
+    border-bottom: 0.5px solid #D7DAE0;
+}
+
+.items-table td {
+    padding: 2.2mm 0;
+    /* Compact padding to make sure 5 rows fit perfectly on A4 */
+    border-bottom: 0.5px solid #D7DAE0;
+    color: #5E6470;
+    vertical-align: middle;
+    font-size: 10px;
+    line-height: 14px;
+}
+
+.items-table .col-qty {
+    width: 14%;
+    /* 73px / 515px */
+    text-align: center;
+    font-weight: 500;
+}
+
+.items-table .col-desc {
+    width: 60%;
+    /* 307px / 515px */
+    font-weight: 600;
+    color: #1A1C21;
+}
+
+.items-table .col-price {
+    width: 16%;
+    /* 84px / 515px */
+    text-align: right;
+    font-weight: 500;
+}
+
+.items-table .col-total {
+    width: 10%;
+    /* 51px / 515px */
+    text-align: right;
+    font-weight: 500;
+}
+
+.summary-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    line-height: 14px;
+    padding: 3.5mm 0;
+    border-bottom: 0.5px solid #D7DAE0;
+}
+
+.summary-row .label {
+    color: #1A1C21;
+    font-weight: 600;
+}
+
+.summary-row .val {
+    font-weight: 500;
+    color: #5E6470;
+}
+
+.total-due-block {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-top: 1.5px solid #e4292c;
+    border-bottom: 1.5px solid #e4292c;
+    padding: 3.5mm 0;
+}
+
+.total-due-block .label {
+    font-size: 10px;
+    font-weight: 700;
+    color: #e4292c;
+    line-height: 14px;
+}
+
+.total-due-block .val {
+    font-size: 10px;
+    font-weight: 700;
+    color: #e4292c;
+    line-height: 14px;
+}
+
+/* --- Sección Inferior: Observaciones (Izq) y Totales (Der) --- */
+.bottom-section {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 14mm;
+    /* 40px gap */
+    margin-top: 6mm;
+    /* Subido cerca de la tabla según la foto */
+    margin-bottom: 0;
+}
+
+.bottom-left {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6mm;
+    /* Espacio entre observaciones y métodos de pago */
+}
+
+.bottom-right {
+    width: 72mm;
+    /* 203px */
+    min-width: 72mm;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.totals-box {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.terms-block {
+    font-size: 8px;
+    line-height: 12px;
+    color: #868DA6;
+}
+
+.terms-block h3 {
+    font-size: 8px;
+    font-weight: 600;
+    color: #868DA6;
+    margin-bottom: 2px;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.terms-block p {
+    font-size: 8px;
+    line-height: 12px;
+    color: #868DA6;
+}
+
+/* --- Métodos de Pago --- */
+.payments-section {
+    margin-top: auto;
+    /* Empuja los métodos de pago, el agradecimiento y el footer al fondo */
+    margin-bottom: 0;
+}
+
+/* --- Mensaje (Figma: y:722) --- */
+.thanks-message {
+    margin-top: 6.4mm;
+    /* Distancia fija y compacta debajo de métodos de pago */
+    margin-bottom: 0;
+}
+
+.thanks-message h4 {
+    font-size: 10px;
+    font-weight: 600;
+    color: #1A1C21;
+    line-height: 14px;
+    margin-bottom: 4px;
+}
+
+.thanks-message p {
+    font-size: 10px;
+    color: #5E6470;
+    line-height: 14px;
+}
+
+/* --- Footer (Figma: y:796) --- */
+.footer-line {
+    border-top: 0.5px solid #D7DAE0;
+    padding-top: 4.2mm;
+    /* 12px */
+    margin-top: 11.3mm;
+    /* 32px gap below thanks-message y:764 */
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 10px;
+    line-height: 14px;
+    color: #5E6470;
+    font-weight: 500;
+}
+
+.footer-line .separator {
+    color: #D7DAE0;
+    margin: 0 8px;
+}
+
+/* --- Estilos de Impresión --- */
+@media print {
+    html {
+        font-size: 9pt;
+        background-color: #ffffff;
+    }
+
+    body {
+        padding: 0;
+        box-shadow: none;
+        margin: 0;
+        max-width: 100%;
+        background-color: #ffffff;
+    }
+
+    .info-grid,
+    .info-col {
+        border-color: #D7DAE0 !important;
+    }
+
+    .items-table th,
+    .items-table td,
+    .footer-line {
+        border-color: #D7DAE0 !important;
+    }
+
+    .total-due-block {
+        border-color: #e4292c !important;
+        -webkit-print-color-adjust: exact;
+        color-adjust: exact;
+    }
+}
+
+@page {
+    margin: 0.4in;
+    size: A4;
+}
