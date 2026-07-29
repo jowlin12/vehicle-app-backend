@@ -119,6 +119,39 @@ Genera una factura en PDF usando una API propia, la almacena automáticamente en
   }
   ```
 
+#### Plantilla y assets del PDF
+
+El HTML de la cotización se arma en `invoice-template.js` y **tiene que ser
+autocontenido**: sin `<link>`, sin `@import` y sin imágenes por URL.
+
+El PDF lo renderiza un navegador headless remoto. Cuando el HTML pedía el CSS
+(`jowlin12.github.io`), la fuente (`fonts.googleapis.com`) y el logo
+(`github.com/.../logo red.png?raw=true`, que además son 3 redirecciones) por
+red, el navegador terminaba el PDF antes de que esas descargas llegaran y la
+cotización salía **sin logo y sin diseño**. Solo después de varios intentos
+salía bien, porque las descargas ya estaban en caché.
+
+Por eso el CSS va en línea y el logo y la fuente van en base64:
+
+| Archivo | Para qué sirve |
+| --- | --- |
+| `assets/invoice.css` | Diseño de la cotización. **Editar aquí.** |
+| `assets/logo-red.png` | Logo del encabezado. |
+| `assets/inter-latin.woff2` | Fuente Inter (variable, cubre los pesos 400-700). |
+| `invoice-assets.js` | **Generado.** Los tres anteriores ya incrustados. |
+| `invoice-template.js` | Arma el HTML final con handlebars. |
+
+Después de cambiar cualquier archivo de `assets/`, hay que regenerar:
+
+```bash
+npm run build:invoice-assets
+```
+
+Los assets se emiten como módulo `.js` (en vez de leerse con `fs` al atender la
+petición) para que el bundler de Vercel siempre los incluya en el deploy.
+
+`invoice-template.test.js` verifica que el HTML no vuelva a depender de la red.
+
 ### `POST /api/workers`
 
 Crea una nueva cuenta de trabajador con un email y contraseña temporales.
