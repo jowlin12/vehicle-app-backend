@@ -4,7 +4,7 @@ const { supabase } = require('./database.js');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
-const { renderInvoiceHtml } = require('./invoice-template.js');
+const handlebars = require('handlebars');
 const FacturatechService = require('./facturatech-service.js');
 const { NUMERACION } = require('./facturatech-config.js');
 const { protect, requireAdmin } = require('./middleware.js');
@@ -128,20 +128,190 @@ app.delete('/api/drive/files/:fileId', async (req, res) => {
   }
 });
 
-app.post('/api/generate-invoice', async (req, res) => {
+app.post('/api/generate-invoice', requireAdmin, async (req, res) => {
   try {
-    // Extraer los datos del cuerpo de la solicitud con la estructura correcta
-    // Log detallado para depuración
-    console.log('Datos recibidos:', JSON.stringify(req.body, null, 2));
-
     const { formato, repuestos, servicios, costos } = req.body;
 
     // Validar que los datos necesarios existen
-    if (!formato || !costos) {
+    if (!formato || !costos || !formato.clave_key) {
       return res.status(400).json({ error: 'Faltan datos para generar la factura.' });
     }
 
-    const finalHtml = renderInvoiceHtml({ formato, repuestos, servicios, costos });
+
+    // El PDF es solo el documento de la cotizacion: no toca importes, abonos ni
+    // estado. Por eso un formato historico (o ya liquidado) tambien puede
+    // generarlo, incluidos aquellos a los que nunca se les creo. La cuenta de
+    // una factura historica sigue siendo de solo lectura en la base de datos.
+
+    const templateHtml = `
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="utf-8">
+        <title>COTIZACIÓN - {{formato.clave_key}}</title>
+        <link rel="stylesheet" href="https://jowlin12.github.io/invoice/style-new.css">
+    </head>
+    <body>
+        <!-- Encabezado -->
+        <header class="header-section">
+            <div class="invoice-title-block">
+                <h1>Cotización</h1>
+                <div class="invoice-id">#{{formato.clave_key}}</div>
+            </div>
+            <img class="logo" alt="Logo Empresa" src="https://github.com/jowlin12/invoice/blob/main/logo%20red.png?raw=true">
+        </header>
+
+        <!-- Rejilla de Información -->
+        <section class="info-grid">
+            <div class="info-col">
+                <div class="col-title">Emitido</div>
+                <div class="col-content">{{formato.fecha_entrada}}</div>
+            </div>
+            <div class="info-col">
+                <div class="col-title">Facturado a</div>
+                <div class="col-content">
+                    <strong>{{formato.nombre_cliente}}</strong>
+                    {{#if hasVehicleInfo}}
+                    <div class="client-vehicle-info">
+                        {{#if formato.placa}}<div class="info-row"><span class="info-label">Placa:</span><span class="info-value">{{formato.placa}}</span></div>{{/if}}
+                        {{#if formato.marca}}<div class="info-row"><span class="info-label">Marca:</span><span class="info-value">{{formato.marca}}</span></div>{{/if}}
+                        {{#if formato.tipo_vehiculo}}<div class="info-row"><span class="info-label">Tipo:</span><span class="info-value">{{formato.tipo_vehiculo}}</span></div>{{/if}}
+                        {{#if formato.kilometraje}}<div class="info-row"><span class="info-label">KM:</span><span class="info-value">{{formato.kilometraje}}</span></div>{{/if}}
+                    </div>
+                    {{/if}}
+                    {{#if formato.direccion_cliente}}<div class="client-detail">{{formato.direccion_cliente}}</div>{{/if}}
+                    {{#if formato.telefono_cliente}}<div class="client-detail">{{formato.telefono_cliente}}</div>{{/if}}
+                </div>
+            </div>
+            <div class="info-col">
+                <div class="col-title">De</div>
+                <div class="col-content"><strong>Mi Taller Mazos Car</strong><br>Calle 1 #7e-72 Quinta Oriental<br>Cucuta, Norte de Santander</div>
+            </div>
+        </section>
+
+        <!-- Tabla de Servicios -->
+        <main class="invoice-items">
+            <table class="items-table">
+                <thead>
+                    <tr>
+                        <th class="col-desc">Servicio</th>
+                        <th class="col-qty">Cant.</th>
+                        <th class="col-price">Vlr Unit</th>
+                        <th class="col-total">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{{repuestos_html}}}
+                    {{{servicios_html}}}
+                </tbody>
+            </table>
+        </main>
+
+        <!-- Sección Inferior: Observaciones (Izq) y Totales (Der) -->
+        <section class="bottom-section">
+            <div class="bottom-left">
+                {{#if formato.observaciones}}
+                <div class="terms-block observations-block">
+                    <h3>Observaciones:</h3>
+                    <p>{{formato.observaciones}}</p>
+                </div>
+                {{/if}}
+            </div>
+            <div class="bottom-right">
+                <div class="totals-box">
+                    <div class="summary-row">
+                        <span class="label">Repuestos</span>
+                        <span class="val">{{costos.repuestos_total_formateado}}</span>
+                    </div>
+                    <div class="summary-row">
+                        <span class="label">Mano de Obra</span>
+                        <span class="val">{{costos.mano_obra_formateado}}</span>
+                    </div>
+                    <div class="total-due-block">
+                        <span class="label">Monto a pagar</span>
+                        <span class="val">{{costos.total_formateado}}</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Métodos de Pago (Abajo) -->
+        <section class="payments-section">
+            <div class="terms-block payments-block">
+                <h3>Metodos de pago:</h3>
+                <p>Bancolombia: Cuenta de Ahorros Nº 832 044 587 77</p>
+                <p>LLave Bre-B: 60327747</p>
+            </div>
+        </section>
+
+        <!-- Mensaje -->
+        <section class="thanks-message">
+            <h4>¡Gracias por su confianza!</h4>
+            <p>Esperamos que vuelva pronto!</p>
+        </section>
+
+        <!-- Footer -->
+        <footer class="footer-line">
+            <span>Mi Taller Mazos Car, CUC/NTS</span>
+            <div>
+                <span>3184077646</span>
+                <span class="separator">|</span>
+                <span>mazos.car1@gmail.com</span>
+            </div>
+        </footer>
+    </body>
+    </html>
+    `;
+
+    // Filtrar repuestos y servicios válidos (excluyendo vacíos)
+    const validRepuestos = (repuestos || []).filter(r => r.descripcion && r.descripcion.trim() !== '');
+    const validServicios = (servicios || []).filter(s => s.descripcion && s.descripcion.trim() !== '');
+
+    // Generar filas de la tabla para repuestos y servicios
+    let repuestos_html = '';
+    if (validRepuestos.length > 0) {
+      repuestos_html = validRepuestos.map(r => `
+            <tr>
+                <td class="col-desc">${r.descripcion}</td>
+                <td class="col-qty">${r.cantidad || 0}</td>
+                <td class="col-price">${(r.costo_unitario || 0).toLocaleString('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 })}</td>
+                <td class="col-total">${((r.cantidad || 0) * (r.costo_unitario || 0)).toLocaleString('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 })}</td>
+            </tr>
+        `).join('');
+    }
+
+    let servicios_html = '';
+    if (validServicios.length > 0) {
+      servicios_html = validServicios.map(s => `
+            <tr>
+                <td class="col-desc">${s.descripcion}</td>
+                <td class="col-qty">${s.cantidad || 1}</td>
+                <td class="col-price">${(s.costo_unitario || 0).toLocaleString('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 })}</td>
+                <td class="col-total">${((s.cantidad || 1) * (s.costo_unitario || 0)).toLocaleString('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 })}</td>
+            </tr>
+        `).join('');
+    }
+
+    const repuestosTotal = validRepuestos.reduce((acc, r) => acc + ((r.cantidad || 0) * (r.costo_unitario || 0)), 0);
+    const hasVehicleInfo = !!(formato.placa || formato.marca || formato.tipo_vehiculo || formato.kilometraje);
+
+    const template = handlebars.compile(templateHtml);
+    const finalHtml = template({
+      formato,
+      repuestos: validRepuestos,
+      servicios: validServicios,
+      repuestos_html,
+      servicios_html,
+      hasVehicleInfo,
+
+      costos: {
+        ...costos,
+        repuestos_total_formateado: repuestosTotal.toLocaleString('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }),
+        mano_obra_formateado: (costos.mano_obra || 0).toLocaleString('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }),
+        total_formateado: (costos.total || 0).toLocaleString('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 })
+      },
+      currentDate: new Date().toLocaleDateString('es-CO')
+    });
 
     // Usar la nueva API propia para convertir HTML a PDF y guardarlo en Google Drive
     console.log('Generando PDF con la API propia...');
@@ -176,41 +346,13 @@ app.post('/api/generate-invoice', async (req, res) => {
       response.data.driveUrl ||
       response.data;
 
-    // Lógica para crear o actualizar la factura en la base de datos
-    const { data: existingInvoice } = await supabase
-      .from('facturas')
-      .select('id_formato')
-      .eq('id_formato', formato.clave_key)
-      .maybeSingle();
-
-    if (existingInvoice) {
-      // Si existe, actualiza la factura
-      await supabase
-        .from('facturas')
-        .update({
-          precio_factura: costos.total,
-          factura_pdf: driveUrl
-        })
-        .eq('id_formato', formato.clave_key);
-    } else {
-      // Si no existe, crea una nueva factura
-      await supabase
-        .from('facturas')
-        .insert({
-          id_formato: formato.clave_key,
-          precio_factura: costos.total,
-          debe: costos.total,
-          factura_pdf: driveUrl,
-          estado: 'PENDIENTE',
-          cliente: formato.nombre_cliente
-        });
-    }
-
-    // Finalmente, actualiza la URL en la tabla de formatos también
-    await supabase
-      .from('formatos')
-      .update({ url_documento: driveUrl })
-      .eq('clave_key', formato.clave_key);
+    // La función centralizada crea/actualiza únicamente facturas nuevas y
+    // mantiene sincronizada la URL del formato dentro de la misma operación.
+    const { error: attachError } = await supabase.rpc('adjuntar_factura_pdf_v2', {
+      p_id_formato: formato.clave_key,
+      p_factura_pdf: driveUrl,
+    });
+    if (attachError) throw attachError;
 
     res.status(200).json({
       success: true,
@@ -237,6 +379,12 @@ app.post('/api/generate-invoice', async (req, res) => {
 
   } catch (error) {
     console.error('Error detallado al generar la factura:', error.response ? error.response.data : error.message);
+    // El mensaje que levanta la base de datos explica el motivo real (permisos,
+    // formato inexistente, ...). Devolverlo evita el 500 opaco que escondia la
+    // causa y dejaba al usuario sin saber por que no se guardo la cotizacion.
+    if (error.code && error.message) {
+      return res.status(409).json({ code: error.code, error: error.message });
+    }
     res.status(500).json({ error: 'Ocurrió un error en el servidor al generar el PDF con la API propia.' });
   }
 });
