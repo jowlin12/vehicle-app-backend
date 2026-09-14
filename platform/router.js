@@ -35,7 +35,7 @@ function password(value) {
   return value;
 }
 
-function createPlatformRouter({ auth, store, secretBox, resolveConnection, makeClient, provisioner }) {
+function createPlatformRouter({ auth, store, secretBox, resolveConnection, makeClient, provisioner, adminAccess }) {
   const router = express.Router();
   router.use(express.json({ limit: '256kb' }));
   router.use(asyncRoute(async (req, res, next) => {
@@ -205,6 +205,37 @@ function createPlatformRouter({ auth, store, secretBox, resolveConnection, makeC
     if (membership.operational_user_id && membership.operational_user_id !== data.user.id) reject(409, 'already_linked', 'La membresía ya está vinculada a otro usuario.');
     await store.linkMember(row.id, req.platformUser, data.user.id, membership.role);
     res.json({ linked: true });
+  }));
+
+  // Global administrators enter as their own operational user, not the owner's.
+  // The session is minted server-side, so no workshop password is shared.
+  router.post('/workshops/:id/admin-access', asyncRoute(async (req, res) => {
+    admin(req);
+    const { row, membership } = await workshop(req, false);
+    if (row.status === 'suspended') reject(403, 'workshop_suspended', 'Taller suspendido.');
+    const central = await auth.admin.getUserById(req.platformUser);
+    if (central.error || !central.data?.user?.email) {
+      reject(503, 'admin_unavailable', 'No fue posible leer tu cuenta central.');
+    }
+    const connection = await resolveConnection(row.connection_ref, { requireSecrets: true });
+    const entry = await adminAccess.enter({
+      connection,
+      email: central.data.user.email,
+      operationalUserId: membership?.operational_user_id || null,
+    });
+    await store.linkMember(row.id, req.platformUser, entry.operationalUserId, membership?.role || 'admin');
+    res.set('Cache-Control', 'no-store');
+    res.json({
+      workshop: publicWorkshop(row),
+      url: connection.url,
+      publishableKey: connection.publishableKey,
+      userId: entry.operationalUserId,
+      session: {
+        accessToken: entry.accessToken,
+        refreshToken: entry.refreshToken,
+        expiresAt: entry.expiresAt,
+      },
+    });
   }));
 
   router.post('/workshops/:id/prepare', asyncRoute(async (req, res) => {

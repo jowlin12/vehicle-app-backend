@@ -1,6 +1,7 @@
 'use strict';
 
 const { createClient } = require('@supabase/supabase-js');
+const { createAdminAccess } = require('./admin-access');
 const { createConnectionResolver } = require('./connections');
 const { createProvisioner } = require('./provisioning');
 const { createSecretBox } = require('./secrets');
@@ -29,12 +30,14 @@ function mountPlatform(app, env = process.env) {
     connection.serviceRoleKey,
     options,
   );
+  const makePublicClient = connection => createClient(connection.url, connection.publishableKey, options);
   app.use('/api/platform', createPlatformRouter({
     auth: central.auth,
     store,
     secretBox,
     resolveConnection,
     provisioner: createProvisioner({ makeServiceClient }),
+    adminAccess: createAdminAccess({ makeServiceClient, makePublicClient }),
     makeClient: (connection, token) => createClient(connection.url, connection.publishableKey, {
       ...options, global: { headers: { Authorization: `Bearer ${token}` } },
     }),

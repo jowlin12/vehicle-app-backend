@@ -41,6 +41,16 @@ function rowsFrom(payload) {
   return [payload];
 }
 
+async function findUser(auth, email) {
+  for (let page = 1; page <= 20; page += 1) {
+    const { data, error } = await auth.admin.listUsers({ page, perPage: 100 });
+    if (error) reject(503, 'operational_auth_unavailable', 'No fue posible consultar los usuarios del taller.');
+    const user = data.users.find(value => value.email?.toLowerCase() === email);
+    if (user || data.users.length < 100) return user || null;
+  }
+  reject(409, 'user_lookup_limit', 'No fue posible localizar el usuario en la instalación.');
+}
+
 function createProvisioner({ fetchImpl = global.fetch, makeServiceClient, template = templates() }) {
   if (typeof fetchImpl !== 'function' || typeof makeServiceClient !== 'function') {
     throw new Error('El aprovisionador requiere HTTP y un cliente Supabase.');
@@ -112,16 +122,6 @@ function createProvisioner({ fetchImpl = global.fetch, makeServiceClient, templa
     }
   }
 
-  async function findUser(auth, email) {
-    for (let page = 1; page <= 20; page += 1) {
-      const { data, error } = await auth.admin.listUsers({ page, perPage: 100 });
-      if (error) reject(503, 'operational_auth_unavailable', 'No fue posible preparar el acceso del propietario.');
-      const user = data.users.find(value => value.email?.toLowerCase() === email);
-      if (user || data.users.length < 100) return user || null;
-    }
-    reject(409, 'owner_lookup_limit', 'No fue posible localizar al propietario en la instalación.');
-  }
-
   async function ensureOwner(db, email, password) {
     let user = await findUser(db.auth, email);
     if (!user) {
@@ -170,4 +170,4 @@ function createProvisioner({ fetchImpl = global.fetch, makeServiceClient, templa
   return Object.freeze({ provision });
 }
 
-module.exports = { SCHEMA_VERSION, createProvisioner, migrationTransaction, rowsFrom, templates };
+module.exports = { SCHEMA_VERSION, createProvisioner, findUser, migrationTransaction, rowsFrom, templates };
