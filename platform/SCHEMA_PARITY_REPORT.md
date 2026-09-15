@@ -96,7 +96,18 @@ Procedimiento exacto para completarla, sin exponer secretos en el repositorio:
 4. Aplicar la migración de configuración si aún no está registrada en
    `vehicleapp_schema_migrations` (el archivo se autoregistra; también puede
    aplicarse con `POST` a `/v1/projects/cpulwtgoqoyjoerttvkt/database/query`).
-5. Confirmar `schema_version = 20260914.2` en el registro central.
+5. Actualizar la versión en el registro central:
+
+   ```sql
+   update platform_workshop_connections
+      set schema_version = '20260914.2', updated_at = now()
+    where connection_ref = 'cpulwtgoqoyjoerttvkt';
+   update platform_workshops
+      set schema_version = '20260914.2'
+    where connection_ref = 'cpulwtgoqoyjoerttvkt';
+   ```
+
+6. Confirmar `schema_version = 20260914.2` en el registro central.
 
 Criterio de aceptación: `Paridad: OK` y, como máximo, los adicionales
 legítimos de una instalación (por ejemplo el propio libro de migraciones).
