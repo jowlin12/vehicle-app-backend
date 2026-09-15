@@ -95,6 +95,7 @@ test('uploads a workshop photo with its workshop property and relative path', as
       filePath: `/api/platform/workshops/${workshopId}/drive/files/drive-file-1`,
     });
     assert.equal(drive.calls.upload.length, 1);
+    assert.equal(drive.calls.upload[0].uploadRequestId, 'request-0001');
     assert.deepEqual(drive.calls.upload[0].appProperties, { [WORKSHOP_PROPERTY]: workshopId });
   });
 });
@@ -119,6 +120,23 @@ test('rejects an unknown workshop, a missing session and a non-operational role'
       403,
     );
   });
+});
+
+test('rejects inactive or deleted operational profiles', async () => {
+  for (const profile of [
+    { role: 'admin', is_active: false, deleted_at: null },
+    { role: 'empleado', is_active: true, deleted_at: '2026-01-01T00:00:00Z' },
+  ]) {
+    const { app } = build({ profile });
+    await withServer(app, async base => {
+      const response = await fetch(`${base}/api/platform/workshops/${workshopId}/drive/upload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer valid-token' },
+        body: JSON.stringify(uploadBody()),
+      });
+      assert.equal(response.status, 403, JSON.stringify(profile));
+    });
+  }
 });
 
 test('rejects images with a disallowed type or size', async () => {
