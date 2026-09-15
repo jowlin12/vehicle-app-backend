@@ -31,11 +31,11 @@ function createWorkshopDriveRouter({ store, resolveConnection, makeClient, drive
   const json = express.json({ limit: '4mb' });
 
   async function operational(req) {
+    const token = authorization(req);
     const id = req.params.id;
     if (!UUID.test(id || '')) reject(400, 'invalid_id', 'Identificador inválido.');
     const row = await store.get(id);
     if (!row || row.status === 'suspended') reject(404, 'workshop_not_found', 'Taller no disponible.');
-    const token = authorization(req);
     const connection = await resolveConnection(row.connection_ref);
     const db = makeClient(connection, token);
     const { data, error } = await db.auth.getUser(token);

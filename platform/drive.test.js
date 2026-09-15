@@ -108,9 +108,15 @@ test('rejects an unknown workshop, a missing session and a non-operational role'
       headers: { 'Content-Type': 'application/json', ...headers },
       body: JSON.stringify(uploadBody()),
     });
-    assert.equal((await send('not-a-uuid')).status, 400);
-    assert.equal((await send('80000000-0000-4000-8000-000000000099')).status, 404);
     assert.equal((await send(workshopId)).status, 401);
+    assert.equal(
+      (await send('not-a-uuid', { Authorization: 'Bearer valid-token' })).status,
+      400,
+    );
+    assert.equal(
+      (await send('80000000-0000-4000-8000-000000000099', { Authorization: 'Bearer valid-token' })).status,
+      404,
+    );
     assert.equal(
       (await send(workshopId, { Authorization: 'Bearer expired-token' })).status,
       401,
