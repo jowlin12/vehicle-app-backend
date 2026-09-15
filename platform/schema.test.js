@@ -65,9 +65,19 @@ test('backend provisioning bundle matches the reviewed workshop template', () =>
       'Backend/platform/template/20260913225307_installation_contract.sql'],
     ['workshop-template/supabase/migrations/20260913230822_workshop_access_guards.sql',
       'Backend/platform/template/20260913230822_workshop_access_guards.sql'],
+    ['workshop-template/supabase/migrations/20260914030000_workshop_installation_defaults.sql',
+      'Backend/platform/template/20260914030000_workshop_installation_defaults.sql'],
     ['workshop-template/verify-orders.sql', 'Backend/platform/template/verify-orders.sql'],
   ];
   for (const [source, packaged] of pairs) assert.equal(migration(packaged), migration(source));
+  const packaged = fs.readdirSync(path.join(root, 'Backend/platform/template'))
+    .filter(name => name.endsWith('.sql') && name !== 'verify-orders.sql')
+    .sort();
+  const declared = pairs.map(([, target]) => path.basename(target))
+    .filter(name => name.endsWith('.sql') && name !== 'verify-orders.sql')
+    .sort();
+  assert.deepEqual(packaged, declared,
+    'Toda copia empaquetada de la plantilla debe estar declarada y comparada.');
 });
 
 test('workshop baseline installs in an empty embedded PostgreSQL', async () => {
@@ -81,8 +91,17 @@ test('workshop baseline installs in an empty embedded PostgreSQL', async () => {
     }
     await db.exec(migration('supabase/migrations/20260913225307_installation_contract.sql'));
     await db.exec(migration('workshop-template/supabase/migrations/20260913230822_workshop_access_guards.sql'));
+    await db.exec(migration('workshop-template/supabase/migrations/20260914030000_workshop_installation_defaults.sql'));
     const result = await db.query("select count(*)::int as count from information_schema.tables where table_schema='public' and table_type='BASE TABLE'");
     assert.equal(result.rows[0].count, 36);
+    const defaults = await db.query(`select
+      (select count(*)::int from public.factura_v2_config) as cutover_rows,
+      (select count(*)::int from public.app_settings) as settings_rows,
+      (select value from public.app_settings where key='admin_bypass_photos') as bypass,
+      (select count(*)::int from pg_namespace where nspname='cron') as cron_schema`);
+    assert.deepEqual(defaults.rows[0], {
+      cutover_rows: 1, settings_rows: 3, bypass: false, cron_schema: 0,
+    });
     const acceptance = await db.exec(migration('workshop-template/verify-orders.sql'));
     assert.deepEqual(acceptance.find(result => result.rows?.[0]?.acceptance)?.rows[0].acceptance,
       { formatos: 1, servicios: 1, repuestos: 1, receipts: 3 });

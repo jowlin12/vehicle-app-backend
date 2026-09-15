@@ -4,11 +4,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { reject } = require('./errors');
 
-const SCHEMA_VERSION = '20260914.1';
+const SCHEMA_VERSION = '20260914.2';
 const MIGRATION_FILES = [
   '20260913225816_workshop_baseline.sql',
   '20260913225307_installation_contract.sql',
   '20260913230822_workshop_access_guards.sql',
+  '20260914030000_workshop_installation_defaults.sql',
 ];
 
 function templates(directory = path.join(__dirname, 'template')) {
@@ -29,7 +30,8 @@ function migrationTransaction(migration) {
   const body = migration.sql.slice(begin.index + begin[0].length, last);
   const version = migration.version.replace(/[^0-9]/g, '');
   return `begin;\n${body}\ninsert into public.vehicleapp_schema_migrations(version, name)\n` +
-    `values ('${version}', '${migration.name.replaceAll("'", "''")}');\ncommit;`;
+    `values ('${version}', '${migration.name.replaceAll("'", "''")}')\n` +
+    `on conflict (version) do nothing;\ncommit;`;
 }
 
 function rowsFrom(payload) {
