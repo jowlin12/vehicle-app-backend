@@ -108,6 +108,8 @@ test('reutiliza la foto creada cuando se reintenta la misma subida', async () =>
       if (options.method === 'GET' && options.url.endsWith('/files')) {
         if (options.params.q.includes('appProperties')) {
           assert.match(options.params.q, /upload-request-123/);
+          assert.match(options.params.q, /vehicleAppWorkshop/);
+          assert.match(options.params.q, /workshop-a/);
           return {data: {files: [{id: 'existing-photo', name: 'image.jpg'}]}};
         }
         return {data: {files: [{id: 'existing-folder', name: 'folder'}]}};
@@ -127,10 +129,29 @@ test('reutiliza la foto creada cuando se reintenta la misma subida', async () =>
     folderPath: 'ABC123/frontal',
     root: 'vehicles',
     uploadRequestId: 'upload-request-123',
+    appProperties: {vehicleAppWorkshop: 'workshop-a'},
   });
 
   assert.equal(result.id, 'existing-photo');
   assert.equal(uploadCalls, 0);
+});
+
+test('rechaza propiedades que podrían reemplazar el alcance administrado', async () => {
+  let networkCalls = 0;
+  const httpClient = {
+    async post() { networkCalls += 1; },
+    async request() { networkCalls += 1; },
+  };
+  const service = createDriveService(httpClient, testEnvironment());
+  await assert.rejects(service.uploadPrivateFile({
+    buffer: Buffer.from('image-content'),
+    fileName: 'image.jpg',
+    mimeType: 'image/jpeg',
+    folderPath: 'ABC123/frontal',
+    root: 'vehicles',
+    appProperties: {uploadRequestId: 'foreign-scope'},
+  }), error => error.statusCode === 400);
+  assert.equal(networkCalls, 0);
 });
 
 test('solo descarga y elimina archivos ubicados bajo una raíz configurada', async () => {

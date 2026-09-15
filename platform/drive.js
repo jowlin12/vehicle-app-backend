@@ -23,7 +23,8 @@ function authorization(req) {
 // database only. The legacy backend keeps using its own Supabase project, so a
 // workshop session is never forwarded to another installation.
 function createWorkshopDriveRouter({ store, resolveConnection, makeClient, drive }) {
-  if (typeof store?.get !== 'function' || typeof resolveConnection !== 'function' ||
+  if (typeof store?.get !== 'function' || typeof store?.operationalMembership !== 'function' ||
+      typeof resolveConnection !== 'function' ||
       typeof makeClient !== 'function' || typeof drive?.uploadPrivateFile !== 'function') {
     throw new Error('Las rutas de fotos requieren el registro de talleres y el servicio de Drive.');
   }
@@ -35,7 +36,7 @@ function createWorkshopDriveRouter({ store, resolveConnection, makeClient, drive
     const id = req.params.id;
     if (!UUID.test(id || '')) reject(400, 'invalid_id', 'Identificador inválido.');
     const row = await store.get(id);
-    if (!row || row.status === 'suspended') reject(404, 'workshop_not_found', 'Taller no disponible.');
+    if (!row || row.status !== 'ready') reject(404, 'workshop_not_found', 'Taller no disponible.');
     const connection = await resolveConnection(row.connection_ref);
     const db = makeClient(connection, token);
     const { data, error } = await db.auth.getUser(token);
@@ -48,7 +49,11 @@ function createWorkshopDriveRouter({ store, resolveConnection, makeClient, drive
         !['admin', 'empleado'].includes(role)) {
       reject(403, 'profile_required', 'Tu usuario no puede administrar fotos en este taller.');
     }
-    return { row, userId: data.user.id };
+    const membership = await store.operationalMembership(row.id, data.user.id);
+    if (!membership) {
+      reject(403, 'membership_required', 'Tu acceso a este taller no está activo.');
+    }
+    return { row, userId: data.user.id, membership };
   }
 
   async function assertOwned(fileId, row) {
@@ -106,6 +111,7 @@ function createWorkshopDriveRouter({ store, resolveConnection, makeClient, drive
     const driveResponse = await drive.downloadPrivateFile(req.params.fileId);
     res.setHeader('Content-Type', driveResponse.headers['content-type'] || 'application/octet-stream');
     res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     return driveResponse.data.pipe(res);
   }));
 

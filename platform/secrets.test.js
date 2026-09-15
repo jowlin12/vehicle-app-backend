@@ -27,4 +27,12 @@ test('a connection must match its exact Supabase project reference', () => {
     ...connection,
     url: 'https://tsrqponmlkjihgfedcba.supabase.co',
   }), /no corresponde/);
+  for (const url of [
+    'https://abcdefghijklmnopqrst.supabase.co/api',
+    'https://abcdefghijklmnopqrst.supabase.co?redirect=otro',
+    'https://usuario:secreto@abcdefghijklmnopqrst.supabase.co',
+    'https://abcdefghijklmnopqrst.supabase.co:444',
+  ]) {
+    assert.throws(() => normalizeConnection({ ...connection, url }), /no corresponde/);
+  }
 });

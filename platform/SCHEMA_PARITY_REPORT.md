@@ -112,11 +112,52 @@ Procedimiento exacto para completarla, sin exponer secretos en el repositorio:
 Criterio de aceptación: `Paridad: OK` y, como máximo, los adicionales
 legítimos de una instalación (por ejemplo el propio libro de migraciones).
 
-## 6. Evidencia local ejecutada
+## 6. Revisión crítica posterior
 
-- `node --test platform/schema-parity.test.js` → 7/7.
-- `node --test platform/drive.test.js` → 5/5.
-- `npm test` (backend completo) → 33/33.
-- `flutter test` → 347/347; `flutter analyze` sin avisos en los archivos tocados.
+La revisión de cierre encontró y corrigió estos defectos antes de publicar la
+rama:
+
+- En modo multitaller, el cliente todavía consideraba confiables tanto el
+  origen de la plataforma como el backend legado. Varias funciones directas
+  (usuarios, contraseña, PDF, factura electrónica y voz) podían adjuntar el JWT
+  operativo al backend del taller original. Ahora cada llamada autenticada
+  valida el origen activo y el backend legado queda bloqueado cuando hay un
+  taller seleccionado.
+- La reanudación idempotente de una foto buscaba solo carpeta y `uploadRequestId`.
+  Ahora también incluye `vehicleAppWorkshop`, de modo que no puede reutilizar
+  un archivo de otra instalación aunque coincidan la ruta y el identificador de
+  reintento.
+- Las rutas de fotos comprobaban el perfil operativo, pero no que la membresía
+  central vinculada a ese usuario siguiera activa. Ahora exigen taller `ready`,
+  perfil activo y membresía central activa en cada subida, lectura y borrado.
+- Las URLs de la API y de la base operativa ahora rechazan rutas, consultas,
+  fragmentos, credenciales embebidas y puertos no esperados antes de cambiar el
+  contexto de la app.
+- Se añadieron casos de prueba para reejecutar dos veces la migración sin
+  `pg_cron`, detectar una función `SECURITY DEFINER` inesperada y conservar una
+  sola fila en el ledger.
+
+La base central se consultó nuevamente el 2026-09-14: `Prueba` está `ready`,
+tiene dos membresías activas y tanto el taller como su conexión siguen en
+`20260914.1`. No se actualizó el registro central porque la base operativa aún
+no pudo auditarse ni migrarse con el acceso disponible. El MCP visible solo
+enumera `ixjwixcosrzzsgnilkcu` y `dandezhxxeeqetddivgw`; el CLI de Vercel enumera
+las variables sensibles del Preview, pero no entrega sus valores a procesos
+locales. No se imprimieron secretos ni quedó ningún archivo local con sus
+valores.
+
+## 7. Evidencia local ejecutada
+
+- `node --test platform/schema-parity.test.js` → 9/9.
+- Pruebas enfocadas de Drive, rutas y conexión → 15/15.
+- `npm test` (backend completo) → 37/37.
+- `dart format --output=none --set-exit-if-changed lib test` → 224 archivos,
+  cero cambios requeridos.
+- `flutter test` → 349/349.
+- `flutter analyze` no encontró errores de compilación y conservó los 833
+  avisos/informaciones heredados del proyecto; no se corrigieron por estar fuera
+  de esta fase.
+- Build web multitaller → `build/web`.
+- Build APK debug multitaller → `build/app/outputs/flutter-apk/app-debug.apk`.
 - Los conteos de producción de la sección 2 provienen de consultas de catálogo
   de solo lectura; no se ejecutaron migraciones ni escrituras allí.

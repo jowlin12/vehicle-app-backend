@@ -64,6 +64,11 @@ function createControlStore(db) {
       return checked(await db.from('platform_memberships').select('*')
         .eq('user_id', userId).eq('workshop_id', workshopId).eq('active', true).maybeSingle());
     },
+    async operationalMembership(workshopId, operationalUserId) {
+      return checked(await db.from('platform_memberships').select('*')
+        .eq('workshop_id', workshopId).eq('operational_user_id', operationalUserId)
+        .eq('active', true).maybeSingle());
+    },
     async register(actor, key, input) {
       return checked(await db.rpc('platform_register_workshop', {
         p_actor: actor, p_request_key: key, p_name: input.name,

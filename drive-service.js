@@ -14,6 +14,11 @@ const VEHICLE_PHOTO_CATEGORIES = new Set([
   'motor',
   'tablero',
 ]);
+const RESERVED_APP_PROPERTIES = new Set([
+  'vehicleAppManaged',
+  'storageRoot',
+  'uploadRequestId',
+]);
 
 function serviceError(message, statusCode) {
   const error = new Error(message);
@@ -155,6 +160,23 @@ function createDriveService(httpClient = axios, env = process.env) {
       throw serviceError('El identificador de la subida no es válido.', 400);
     }
     return uploadRequestId;
+  }
+
+  function safeAppProperties(appProperties) {
+    if (appProperties == null) return {};
+    if (typeof appProperties !== 'object' || Array.isArray(appProperties)) {
+      throw serviceError('Las propiedades del archivo no son válidas.', 400);
+    }
+    const result = {};
+    for (const [key, value] of Object.entries(appProperties)) {
+      if (RESERVED_APP_PROPERTIES.has(key) || !/^[A-Za-z0-9_-]{1,100}$/.test(key) ||
+          typeof value !== 'string' || !value || value.length > 124 ||
+          /[\u0000-\u001f]/.test(value)) {
+        throw serviceError('Las propiedades del archivo no son válidas.', 400);
+      }
+      result[key] = value;
+    }
+    return result;
   }
 
   function escapeDriveQueryValue(value) {
@@ -346,12 +368,17 @@ function createDriveService(httpClient = axios, env = process.env) {
 
     const validatedFileName = safeFileName(fileName);
     const validatedRequestId = safeUploadRequestId(uploadRequestId);
+    const validatedAppProperties = safeAppProperties(appProperties);
     const rootId = rootFolderId(root);
     const parentId = await ensureFolderPath(rootId, folderPath);
     if (validatedRequestId) {
       const query = [
         `'${escapeDriveQueryValue(parentId)}' in parents`,
         `appProperties has { key='uploadRequestId' and value='${escapeDriveQueryValue(validatedRequestId)}' }`,
+        ...Object.entries(validatedAppProperties)
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([key, value]) =>
+            `appProperties has { key='${escapeDriveQueryValue(key)}' and value='${escapeDriveQueryValue(value)}' }`),
         'trashed = false',
       ].join(' and ');
       const existing = await driveRequest({
@@ -372,12 +399,12 @@ function createDriveService(httpClient = axios, env = process.env) {
       name: validatedFileName,
       parents: [parentId],
       appProperties: {
+        ...validatedAppProperties,
         vehicleAppManaged: 'true',
         storageRoot: root,
         ...(validatedRequestId
           ? {uploadRequestId: validatedRequestId}
           : {}),
-        ...(appProperties && typeof appProperties === 'object' ? appProperties : {}),
       },
     };
     const multipart = multipartBody(metadata, buffer, mimeType);

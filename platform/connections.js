@@ -15,7 +15,8 @@ function normalizeConnection(entry, { requireSecrets = false } = {}) {
   const expectedHost = `${projectRef}.supabase.co`;
   if (!PROJECT_REF.test(projectRef || '') || url.protocol !== 'https:' ||
       url.hostname !== expectedHost || url.username || url.password || url.search ||
-      url.hash || (url.pathname !== '/' && url.pathname !== '')) {
+      url.hash || (url.port && url.port !== '443') ||
+      (url.pathname !== '/' && url.pathname !== '')) {
     reject(503, 'invalid_connection', 'La conexión guardada no corresponde al proyecto Supabase.');
   }
   const publishableKey = entry.publishableKey || entry.publishable_key;

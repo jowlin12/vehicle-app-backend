@@ -28,10 +28,20 @@ function fakeDrive(overrides = {}) {
   };
 }
 
-function build({ profile = { role: 'admin', is_active: true, deleted_at: null }, drive = fakeDrive() } = {}) {
+function build({
+  profile = { role: 'admin', is_active: true, deleted_at: null },
+  membership = { role: 'admin', active: true },
+  workshopStatus = 'ready',
+  drive = fakeDrive(),
+} = {}) {
   const store = {
     async get(id) {
-      return id === workshopId ? { id, status: 'ready', connection_ref: connection.projectRef } : null;
+      return id === workshopId ? { id, status: workshopStatus, connection_ref: connection.projectRef } : null;
+    },
+    async operationalMembership(id, userId) {
+      assert.equal(id, workshopId);
+      assert.equal(userId, 'user-1');
+      return membership;
     },
   };
   const resolveConnection = async () => connection;
@@ -145,6 +155,24 @@ test('rejects inactive or deleted operational profiles', async () => {
   }
 });
 
+test('rejects revoked memberships and workshops that are not ready', async () => {
+  for (const options of [
+    { membership: null },
+    { workshopStatus: 'failed' },
+    { workshopStatus: 'suspended' },
+  ]) {
+    const { app } = build(options);
+    await withServer(app, async base => {
+      const response = await fetch(`${base}/api/platform/workshops/${workshopId}/drive/upload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer valid-token' },
+        body: JSON.stringify(uploadBody()),
+      });
+      assert.equal(response.status, options.membership === null ? 403 : 404);
+    });
+  }
+});
+
 test('rejects images with a disallowed type or size', async () => {
   const { app } = build();
   await withServer(app, async base => {
@@ -170,6 +198,7 @@ test('serves and deletes only files that belong to the workshop', async () => {
     assert.equal(response.status, 200);
     assert.equal(await response.text(), 'image-bytes');
     assert.equal(response.headers.get('cache-control'), 'private, max-age=3600');
+    assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
     const deleted = await fetch(
       `${base}/api/platform/workshops/${workshopId}/drive/files/drive-file-1`,
       { method: 'DELETE', headers: { Authorization: 'Bearer valid-token' } },
