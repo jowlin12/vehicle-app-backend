@@ -521,13 +521,13 @@ BEGIN
       total_abonos NUMERIC;
     BEGIN
       total_abonos := OLD.precio_factura - OLD.debe;
-      
+
       -- Recalculamos el nuevo valor de 'debe'
       -- NuevoDebe = NuevoPrecio - TotalAbonos
       NEW.debe := NEW.precio_factura - total_abonos;
     END;
   END IF;
-  
+
   -- Devolvemos la fila modificada para que la operación de UPDATE continúe
   RETURN NEW;
 END;
@@ -554,7 +554,7 @@ CREATE OR REPLACE FUNCTION public.search_formatos_globales(search_term text)
  LANGUAGE sql
 AS $function$
   SELECT * FROM formatos_globales
-  WHERE 
+  WHERE
     id::text ILIKE ('%' || search_term || '%') OR
     placa::text ILIKE ('%' || search_term || '%') OR
     marca::text ILIKE ('%' || search_term || '%') OR
@@ -630,7 +630,7 @@ BEGIN
     END IF;
 
     -- 7. Devolver los datos de la factura.
-    RETURN QUERY 
+    RETURN QUERY
     SELECT id, id_formato, precio_factura, debe, estado, cliente
     FROM public.facturas
     WHERE id_formato = p_formato_folio;
@@ -645,7 +645,7 @@ AS $function$
 BEGIN
     -- Calcular automáticamente el costo_total como suma de mano_obra + repuestos
     NEW.costo_total := COALESCE(NEW.costo_mano_obra, 0) + COALESCE(NEW.costo_repuestos, 0);
-    
+
     RETURN NEW;
 EXCEPTION
     WHEN OTHERS THEN
@@ -1653,10 +1653,10 @@ CREATE OR REPLACE FUNCTION public.cleanup_old_time_tracking()
 AS $function$
 BEGIN
     -- Eliminar registros de notificaciones inactivas más antiguos de 30 días
-    DELETE FROM notification_time_tracking 
+    DELETE FROM notification_time_tracking
     WHERE notification_id IN (
-        SELECT id FROM update_notifications 
-        WHERE is_active = false 
+        SELECT id FROM update_notifications
+        WHERE is_active = false
         AND updated_at < NOW() - INTERVAL '30 days'
     );
 END;
@@ -2160,7 +2160,7 @@ BEGIN
   INTO current_costo_mano_obra
   FROM public.formatos
   WHERE folio = target_folio_text;
-  
+
   new_costo_total := current_costo_mano_obra + new_costo_repuestos;
 
   -- 3. Actualiza la tabla 'formatos'.
@@ -2251,7 +2251,7 @@ BEGIN
   -- 3. Inserta el nuevo perfil con el nombre, y el nombre de usuario único que hemos generado.
   INSERT INTO public.profiles (id, full_name, username)
   VALUES (new.id, new.raw_user_meta_data->>'full_name', final_username);
-  
+
   RETURN new;
 END;
 $function$
@@ -2269,7 +2269,7 @@ BEGIN
   FROM auth.users AS u
   JOIN public.profiles AS p ON u.id = p.id
   WHERE p.username = p_username;
-  
+
   RETURN user_email;
 END;
 $function$
