@@ -115,6 +115,8 @@ legítimos de una instalación (por ejemplo el propio libro de migraciones).
 ## 6. Evidencia local ejecutada
 
 - `node --test platform/schema-parity.test.js` → 7/7.
-- `node --test platform/drive.test.js` → 4/4.
+- `node --test platform/drive.test.js` → 5/5.
+- `npm test` (backend completo) → 33/33.
+- `flutter test` → 347/347; `flutter analyze` sin avisos en los archivos tocados.
 - Los conteos de producción de la sección 2 provienen de consultas de catálogo
   de solo lectura; no se ejecutaron migraciones ni escrituras allí.
