@@ -7,6 +7,8 @@ const { createProvisioner } = require('./provisioning');
 const { createSecretBox } = require('./secrets');
 const { createControlStore } = require('./store');
 const { createPlatformRouter } = require('./router');
+const { createWorkshopDriveRouter } = require('./drive');
+const driveService = require('../drive-service');
 
 function mountPlatform(app, env = process.env) {
   // Always reserve this prefix so central tokens cannot enter legacy routes.
@@ -31,6 +33,15 @@ function mountPlatform(app, env = process.env) {
     options,
   );
   const makePublicClient = connection => createClient(connection.url, connection.publishableKey, options);
+  const makeTokenClient = (connection, token) => createClient(connection.url, connection.publishableKey, {
+    ...options, global: { headers: { Authorization: `Bearer ${token}` } },
+  });
+  app.use('/api/platform', createWorkshopDriveRouter({
+    store,
+    resolveConnection,
+    makeClient: makeTokenClient,
+    drive: driveService,
+  }));
   app.use('/api/platform', createPlatformRouter({
     auth: central.auth,
     store,
@@ -38,9 +49,7 @@ function mountPlatform(app, env = process.env) {
     resolveConnection,
     provisioner: createProvisioner({ makeServiceClient }),
     adminAccess: createAdminAccess({ makeServiceClient, makePublicClient }),
-    makeClient: (connection, token) => createClient(connection.url, connection.publishableKey, {
-      ...options, global: { headers: { Authorization: `Bearer ${token}` } },
-    }),
+    makeClient: makeTokenClient,
   }));
 }
 

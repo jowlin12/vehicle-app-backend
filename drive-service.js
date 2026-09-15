@@ -330,6 +330,7 @@ function createDriveService(httpClient = axios, env = process.env) {
     folderPath,
     root,
     uploadRequestId,
+    appProperties,
   }) {
     if (!Buffer.isBuffer(buffer) || !buffer.length) {
       throw serviceError('El contenido del archivo no es válido.', 400);
@@ -376,6 +377,7 @@ function createDriveService(httpClient = axios, env = process.env) {
         ...(validatedRequestId
           ? {uploadRequestId: validatedRequestId}
           : {}),
+        ...(appProperties && typeof appProperties === 'object' ? appProperties : {}),
       },
     };
     const multipart = multipartBody(metadata, buffer, mimeType);
@@ -406,10 +408,23 @@ function createDriveService(httpClient = axios, env = process.env) {
       method: 'GET',
       url: `${DRIVE_API_URL}/files/${fileId}`,
       params: {
-        fields: 'id,mimeType,parents,trashed',
+        fields: 'id,mimeType,parents,trashed,appProperties',
         supportsAllDrives: true,
       },
     });
+  }
+
+  // Custom properties identify who uploaded a managed file. The platform uses
+  // them to keep a workshop from reading or deleting another workshop's photos.
+  async function fileAppProperties(fileId) {
+    const id = safeFileId(fileId);
+    const response = await fileMetadata(id);
+    if (response.data?.trashed) {
+      const error = serviceError('Archivo no encontrado.', 404);
+      error.response = {status: 404};
+      throw error;
+    }
+    return response.data?.appProperties || {};
   }
 
   async function assertFileIsManaged(fileId) {
@@ -475,6 +490,7 @@ function createDriveService(httpClient = axios, env = process.env) {
     uploadPrivateFile,
     downloadPrivateFile,
     deletePrivateFile,
+    fileAppProperties,
   };
 }
 
