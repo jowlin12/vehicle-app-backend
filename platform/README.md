@@ -20,6 +20,13 @@ activating the control plane cannot redirect or interrupt the original workshop
 backend or its invoicing provider. Workshop photos reuse the standalone
 `drive-service.js` module and the deployment's own `GOOGLE_DRIVE_*` variables.
 
+Creating a workshop also provisions its private Drive tree under
+`GOOGLE_DRIVE_APP_FOLDER_ID/Talleres/<nombre · id-corto>`. The operation is
+idempotent: the workshop folder is located by its `vehicleAppWorkshopFolder`
+property, so renaming a workshop updates that folder instead of creating a
+duplicate. Each workshop receives `Vehículos`, customer/electronic/supplier
+invoice folders, `Documentos`, `Configuración` and `Reportes`.
+
 ## Workshop photos
 
 A platform workshop does not send its session to the original workshop backend.
@@ -35,6 +42,12 @@ carries a `vehicleAppWorkshop` Drive custom property; uploads, reads and
 deletions of a file that belongs to another workshop are rejected. The platform
 deployment therefore needs the same `GOOGLE_DRIVE_*` variables as the original
 backend.
+
+New platform uploads use server-generated names. Vehicle photos follow
+`foto_<PLACA>_<CATEGORIA>_<UTC>_<ID>.ext`; supplier invoices follow
+`factura-proveedor_<PLACA>_<PROVEEDOR>_<UTC>_<ID>.ext`. The upload request ID
+keeps retries stable and prevents files from being lost among camera-generated
+names.
 
 ## Installation defaults
 

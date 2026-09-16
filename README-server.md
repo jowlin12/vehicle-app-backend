@@ -197,6 +197,7 @@ Las siguientes variables de entorno son necesarias para que el backend funcione 
 - `GOOGLE_DRIVE_REFRESH_TOKEN`: Refresh token de la cuenta propietaria.
 - `GOOGLE_DRIVE_VEHICLE_FOLDER_ID`: Carpeta raíz privada para fotos de vehículos.
 - `GOOGLE_DRIVE_INVOICE_FOLDER_ID`: Carpeta raíz privada para facturas de proveedor.
+- `GOOGLE_DRIVE_APP_FOLDER_ID`: Carpeta madre `Mi Taller APP` para talleres creados desde la plataforma.
 - `ALLOWED_ORIGINS`: Orígenes web permitidos, separados por comas. Android/iOS no lo requieren.
 
 Usa `.env.example` como referencia. No copies secretos dentro de `lib/`, no

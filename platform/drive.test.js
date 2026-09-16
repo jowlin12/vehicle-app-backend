@@ -36,7 +36,9 @@ function build({
 } = {}) {
   const store = {
     async get(id) {
-      return id === workshopId ? { id, status: workshopStatus, connection_ref: connection.projectRef } : null;
+      return id === workshopId
+        ? { id, name: 'Taller Norte', status: workshopStatus, connection_ref: connection.projectRef }
+        : null;
     },
     async operationalMembership(id, userId) {
       assert.equal(id, workshopId);
@@ -106,6 +108,14 @@ test('uploads a workshop photo with its workshop property and relative path', as
     });
     assert.equal(drive.calls.upload.length, 1);
     assert.equal(drive.calls.upload[0].uploadRequestId, 'request-0001');
+    assert.match(
+      drive.calls.upload[0].fileName,
+      /^foto_ABC123_frontal_\d{8}T\d{6}Z_request-0001\.jpg$/,
+    );
+    assert.deepEqual(drive.calls.upload[0].workshop, {
+      id: workshopId,
+      name: 'Taller Norte',
+    });
     assert.deepEqual(drive.calls.upload[0].appProperties, { [WORKSHOP_PROPERTY]: workshopId });
   });
 });

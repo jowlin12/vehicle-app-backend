@@ -2,7 +2,7 @@
 
 const express = require('express');
 const { PlatformError, reject } = require('./errors');
-const { vehiclePhotoFolderPath } = require('../drive-service');
+const { vehiclePhotoFolderPath, workshopFileName } = require('../drive-service');
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic']);
@@ -91,12 +91,18 @@ function createWorkshopDriveRouter({ store, resolveConnection, makeClient, drive
     }
     const file = await drive.uploadPrivateFile({
       buffer,
-      fileName,
+      fileName: workshopFileName({
+        root,
+        folderPath: resolvedFolderPath,
+        mimeType,
+        uploadRequestId,
+      }),
       mimeType,
       folderPath: resolvedFolderPath,
       root,
       uploadRequestId,
       appProperties: { [WORKSHOP_PROPERTY]: row.id },
+      workshop: { id: row.id, name: row.name },
     });
     res.status(201).json({
       fileId: file.id,

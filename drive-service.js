@@ -18,7 +18,9 @@ const RESERVED_APP_PROPERTIES = new Set([
   'vehicleAppManaged',
   'storageRoot',
   'uploadRequestId',
+  'vehicleAppWorkshopFolder',
 ]);
+const WORKSHOP_FOLDER_PROPERTY = 'vehicleAppWorkshopFolder';
 
 function serviceError(message, statusCode) {
   const error = new Error(message);
@@ -41,6 +43,55 @@ function vehiclePhotoFolderPath(vehiclePlate, category) {
   }
 
   return `${normalizedPlate}/${normalizedCategory}`;
+}
+
+function normalizeWorkshop(workshop) {
+  const id = String(workshop?.id || '').trim().toLowerCase();
+  const name = String(workshop?.name || '').trim();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id) ||
+      !name || name.length > 120) {
+    throw serviceError('Los datos del taller no son válidos.', 400);
+  }
+  const safeName = name
+    .replace(/[\/\\\u0000-\u001f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!safeName) throw serviceError('Los datos del taller no son válidos.', 400);
+  return {id, name: safeName, folderName: `${safeName} · ${id.slice(0, 8)}`};
+}
+
+function asciiSlug(value, fallback) {
+  const slug = String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase();
+  return (slug || fallback).slice(0, 48);
+}
+
+function workshopFileName({root, folderPath, mimeType, uploadRequestId, now = new Date()}) {
+  const segments = String(folderPath || '').split('/').map(value => value.trim()).filter(Boolean);
+  const plate = String(segments[0] || '').toUpperCase().replace(/[^A-Z0-9]/g, '') || 'sin-placa';
+  const timestamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+  const requestSuffix = asciiSlug(uploadRequestId, 'archivo').slice(-12);
+  const extensions = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'image/heic': 'heic',
+    'application/pdf': 'pdf',
+    'application/xml': 'xml',
+    'text/xml': 'xml',
+  };
+  const extension = extensions[String(mimeType || '').toLowerCase()] || 'bin';
+
+  if (root === 'vehicles') {
+    const category = asciiSlug(segments[1], 'general');
+    return `foto_${plate}_${category}_${timestamp}_${requestSuffix}.${extension}`;
+  }
+  const provider = segments[1] === 'facturas_compras' ? segments.slice(2).join('-') : segments.slice(1).join('-');
+  return `factura-proveedor_${plate}_${asciiSlug(provider, 'sin-proveedor')}_${timestamp}_${requestSuffix}.${extension}`;
 }
 
 function createDriveService(httpClient = axios, env = process.env) {
@@ -90,10 +141,21 @@ function createDriveService(httpClient = axios, env = process.env) {
     return roots[root];
   }
 
+  function appFolderId() {
+    if (!env.GOOGLE_DRIVE_APP_FOLDER_ID) {
+      throw serviceError(
+        'La carpeta madre Mi Taller APP no está configurada.',
+        503
+      );
+    }
+    return env.GOOGLE_DRIVE_APP_FOLDER_ID;
+  }
+
   function configuredRootIds() {
     const ids = [
       env.GOOGLE_DRIVE_VEHICLE_FOLDER_ID,
       env.GOOGLE_DRIVE_INVOICE_FOLDER_ID,
+      env.GOOGLE_DRIVE_APP_FOLDER_ID,
     ].filter(Boolean);
 
     if (!ids.length) {
@@ -288,7 +350,29 @@ function createDriveService(httpClient = axios, env = process.env) {
     return response.data?.files?.[0] || null;
   }
 
-  async function createFolder(parentId, name) {
+  async function findWorkshopFolder(parentId, workshopId) {
+    const escapedParent = escapeDriveQueryValue(parentId);
+    const escapedWorkshop = escapeDriveQueryValue(workshopId);
+    const response = await driveRequest({
+      method: 'GET',
+      url: `${DRIVE_API_URL}/files`,
+      params: {
+        q:
+          `'${escapedParent}' in parents and ` +
+          `mimeType = '${FOLDER_MIME_TYPE}' and ` +
+          `appProperties has { key='${WORKSHOP_FOLDER_PROPERTY}' and value='${escapedWorkshop}' } and ` +
+          'trashed = false',
+        fields: 'files(id,name,appProperties)',
+        pageSize: 1,
+        spaces: 'drive',
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
+      },
+    });
+    return response.data?.files?.[0] || null;
+  }
+
+  async function createFolder(parentId, name, appProperties) {
     const response = await driveRequest({
       method: 'POST',
       url: `${DRIVE_API_URL}/files`,
@@ -300,6 +384,33 @@ function createDriveService(httpClient = axios, env = process.env) {
         name,
         mimeType: FOLDER_MIME_TYPE,
         parents: [parentId],
+        ...(appProperties ? {appProperties} : {}),
+      },
+    });
+    return response.data;
+  }
+
+  async function renameFolder(folderId, name) {
+    const response = await driveRequest({
+      method: 'PATCH',
+      url: `${DRIVE_API_URL}/files/${folderId}`,
+      params: {fields: 'id,name', supportsAllDrives: true},
+      data: {name},
+    });
+    return response.data;
+  }
+
+  async function adoptWorkshopFolder(folderId, normalized) {
+    const response = await driveRequest({
+      method: 'PATCH',
+      url: `${DRIVE_API_URL}/files/${folderId}`,
+      params: {fields: 'id,name,appProperties', supportsAllDrives: true},
+      data: {
+        name: normalized.folderName,
+        appProperties: {
+          [WORKSHOP_FOLDER_PROPERTY]: normalized.id,
+          vehicleAppManaged: 'true',
+        },
       },
     });
     return response.data;
@@ -328,6 +439,71 @@ function createDriveService(httpClient = axios, env = process.env) {
     return parentId;
   }
 
+  async function ensureWorkshopStructure(workshop) {
+    const normalized = normalizeWorkshop(workshop);
+    const talleresId = await ensureFolderPath(appFolderId(), 'Talleres');
+    let workshopFolder = await findWorkshopFolder(talleresId, normalized.id);
+    if (!workshopFolder) {
+      const legacyFolder =
+        await findFolder(talleresId, `${normalized.name} · taller actual`) ||
+        await findFolder(talleresId, normalized.name);
+      workshopFolder = legacyFolder
+        ? await adoptWorkshopFolder(legacyFolder.id, normalized)
+        : await createFolder(talleresId, normalized.folderName, {
+            [WORKSHOP_FOLDER_PROPERTY]: normalized.id,
+            vehicleAppManaged: 'true',
+          });
+    } else if (workshopFolder.name !== normalized.folderName) {
+      workshopFolder = await renameFolder(workshopFolder.id, normalized.folderName);
+    }
+    if (!workshopFolder?.id) {
+      throw new Error('Google Drive no creó la carpeta del taller.');
+    }
+
+    const rootId = workshopFolder.id;
+    const paths = {
+      vehicles: 'Vehículos',
+      customerInvoices: 'Facturación/Clientes/PDF',
+      electronicInvoicePdf: 'Facturación/Electrónica/PDF',
+      electronicInvoiceXml: 'Facturación/Electrónica/XML',
+      supplierInvoices: 'Facturación/Proveedores',
+      documents: 'Documentos',
+      logos: 'Configuración/Logos',
+      templates: 'Configuración/Plantillas',
+      reports: 'Reportes',
+    };
+    const folderIds = {root: rootId};
+    for (const [key, path] of Object.entries(paths)) {
+      folderIds[key] = await ensureFolderPath(rootId, path);
+    }
+    return {
+      workshopId: normalized.id,
+      folderName: normalized.folderName,
+      folderIds,
+    };
+  }
+
+  async function workshopUploadTarget(workshop, root, folderPath) {
+    const structure = await ensureWorkshopStructure(workshop);
+    const segments = folderSegments(folderPath);
+    if (root === 'vehicles') {
+      return {
+        rootId: structure.folderIds.vehicles,
+        folderPath: `${segments[0]}/Fotos/${segments.slice(1).join('/')}`,
+      };
+    }
+    if (root === 'invoices' && segments[1] === 'facturas_compras') {
+      return {
+        rootId: structure.folderIds.vehicles,
+        folderPath: `${segments[0]}/Facturas de proveedores/${segments.slice(2).join('/')}`,
+      };
+    }
+    if (root === 'invoices') {
+      return {rootId: structure.folderIds.supplierInvoices, folderPath};
+    }
+    throw serviceError('Raíz de almacenamiento no permitida.', 400);
+  }
+
   function multipartBody(metadata, buffer, mimeType) {
     const boundary = `vehicleapp_${Date.now()}_${Math.random().toString(16).slice(2)}`;
     const prefix = Buffer.from(
@@ -353,6 +529,7 @@ function createDriveService(httpClient = axios, env = process.env) {
     root,
     uploadRequestId,
     appProperties,
+    workshop,
   }) {
     if (!Buffer.isBuffer(buffer) || !buffer.length) {
       throw serviceError('El contenido del archivo no es válido.', 400);
@@ -366,11 +543,16 @@ function createDriveService(httpClient = axios, env = process.env) {
       throw serviceError('El tipo del archivo no es válido.', 400);
     }
 
+    if (!['vehicles', 'invoices'].includes(root)) {
+      throw serviceError('Raíz de almacenamiento no permitida.', 400);
+    }
     const validatedFileName = safeFileName(fileName);
     const validatedRequestId = safeUploadRequestId(uploadRequestId);
     const validatedAppProperties = safeAppProperties(appProperties);
-    const rootId = rootFolderId(root);
-    const parentId = await ensureFolderPath(rootId, folderPath);
+    const target = workshop
+      ? await workshopUploadTarget(workshop, root, folderPath)
+      : {rootId: rootFolderId(root), folderPath};
+    const parentId = await ensureFolderPath(target.rootId, target.folderPath);
     if (validatedRequestId) {
       const query = [
         `'${escapeDriveQueryValue(parentId)}' in parents`,
@@ -518,6 +700,7 @@ function createDriveService(httpClient = axios, env = process.env) {
     downloadPrivateFile,
     deletePrivateFile,
     fileAppProperties,
+    ensureWorkshopStructure,
   };
 }
 
@@ -527,4 +710,6 @@ module.exports = {
   ...driveService,
   createDriveService,
   vehiclePhotoFolderPath,
+  workshopFileName,
+  WORKSHOP_FOLDER_PROPERTY,
 };

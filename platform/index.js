@@ -50,6 +50,7 @@ function mountPlatform(app, env = process.env) {
     provisioner: createProvisioner({ makeServiceClient }),
     adminAccess: createAdminAccess({ makeServiceClient, makePublicClient }),
     makeClient: makeTokenClient,
+    drive: driveService,
   }));
 }
 

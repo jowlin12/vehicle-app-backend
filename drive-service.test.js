@@ -4,6 +4,7 @@ const test = require('node:test');
 const {
   createDriveService,
   vehiclePhotoFolderPath,
+  workshopFileName,
 } = require('./drive-service.js');
 
 function testEnvironment() {
@@ -13,6 +14,7 @@ function testEnvironment() {
     GOOGLE_DRIVE_REFRESH_TOKEN: 'refresh-token',
     GOOGLE_DRIVE_VEHICLE_FOLDER_ID: 'vehicle-root',
     GOOGLE_DRIVE_INVOICE_FOLDER_ID: 'invoice-root',
+    GOOGLE_DRIVE_APP_FOLDER_ID: 'app-root',
   };
 }
 
@@ -134,6 +136,108 @@ test('reutiliza la foto creada cuando se reintenta la misma subida', async () =>
 
   assert.equal(result.id, 'existing-photo');
   assert.equal(uploadCalls, 0);
+});
+
+test('genera nombres legibles y únicos para fotos y facturas de proveedor', () => {
+  const now = new Date('2026-09-15T18:42:31.000Z');
+  assert.equal(workshopFileName({
+    root: 'vehicles',
+    folderPath: 'abc-123/frontal',
+    mimeType: 'image/jpeg',
+    uploadRequestId: 'request-0001',
+    now,
+  }), 'foto_ABC123_frontal_20260915T184231Z_request-0001.jpg');
+  assert.equal(workshopFileName({
+    root: 'invoices',
+    folderPath: 'ABC123/facturas_compras/Repuestos Gómez',
+    mimeType: 'application/pdf',
+    uploadRequestId: 'invoice-0002',
+    now,
+  }), 'factura-proveedor_ABC123_repuestos-gomez_20260915T184231Z_invoice-0002.pdf');
+});
+
+test('crea la estructura completa de un taller bajo Mi Taller APP', async () => {
+  const created = [];
+  let sequence = 0;
+  const httpClient = {
+    async post() {
+      return {data: {access_token: 'access-token', expires_in: 3600}};
+    },
+    async request(options) {
+      if (options.method === 'GET' && options.url.endsWith('/files')) {
+        return {data: {files: []}};
+      }
+      if (options.method === 'POST' && options.url.endsWith('/drive/v3/files')) {
+        sequence += 1;
+        created.push(options.data);
+        return {data: {id: `folder-${sequence}`, name: options.data.name}};
+      }
+      throw new Error(`Llamada inesperada: ${options.method} ${options.url}`);
+    },
+  };
+  const service = createDriveService(httpClient, testEnvironment());
+  const workshopId = '80000000-0000-4000-8000-000000000001';
+  const structure = await service.ensureWorkshopStructure({id: workshopId, name: 'Taller Norte'});
+
+  assert.equal(structure.workshopId, workshopId);
+  assert.equal(structure.folderName, 'Taller Norte · 80000000');
+  assert.deepEqual(created[0], {
+    name: 'Talleres',
+    mimeType: 'application/vnd.google-apps.folder',
+    parents: ['app-root'],
+  });
+  assert.deepEqual(created[1].appProperties, {
+    vehicleAppWorkshopFolder: workshopId,
+    vehicleAppManaged: 'true',
+  });
+  for (const expected of [
+    'Vehículos', 'Facturación', 'Clientes', 'PDF', 'Electrónica', 'XML',
+    'Proveedores', 'Documentos', 'Configuración', 'Logos', 'Plantillas', 'Reportes',
+  ]) {
+    assert.ok(created.some(folder => folder.name === expected), expected);
+  }
+});
+
+test('adopta la carpeta migrada del taller actual sin duplicarla', async () => {
+  const patches = [];
+  let sequence = 0;
+  const httpClient = {
+    async post() {
+      return {data: {access_token: 'access-token', expires_in: 3600}};
+    },
+    async request(options) {
+      if (options.method === 'GET' && options.url.endsWith('/files')) {
+        if (options.params.q.includes("name = 'Talleres'")) {
+          return {data: {files: [{id: 'talleres', name: 'Talleres'}]}};
+        }
+        if (options.params.q.includes('appProperties has')) return {data: {files: []}};
+        if (options.params.q.includes("name = 'Mazos Car · taller actual'")) {
+          return {data: {files: [{id: 'legacy-workshop', name: 'Mazos Car · taller actual'}]}};
+        }
+        return {data: {files: []}};
+      }
+      if (options.method === 'PATCH') {
+        patches.push(options);
+        return {data: {id: 'legacy-workshop', name: options.data.name}};
+      }
+      if (options.method === 'POST' && options.url.endsWith('/drive/v3/files')) {
+        sequence += 1;
+        return {data: {id: `folder-${sequence}`, name: options.data.name}};
+      }
+      throw new Error(`Llamada inesperada: ${options.method} ${options.url}`);
+    },
+  };
+  const service = createDriveService(httpClient, testEnvironment());
+  const id = '80000000-0000-4000-8000-000000000001';
+  const result = await service.ensureWorkshopStructure({id, name: 'Mazos Car'});
+
+  assert.equal(result.folderIds.root, 'legacy-workshop');
+  assert.equal(patches.length, 1);
+  assert.equal(patches[0].data.name, 'Mazos Car · 80000000');
+  assert.deepEqual(patches[0].data.appProperties, {
+    vehicleAppWorkshopFolder: id,
+    vehicleAppManaged: 'true',
+  });
 });
 
 test('rechaza propiedades que podrían reemplazar el alcance administrado', async () => {

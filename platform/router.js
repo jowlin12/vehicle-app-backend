@@ -35,7 +35,7 @@ function password(value) {
   return value;
 }
 
-function createPlatformRouter({ auth, store, secretBox, resolveConnection, makeClient, provisioner, adminAccess }) {
+function createPlatformRouter({ auth, store, secretBox, resolveConnection, makeClient, provisioner, adminAccess, drive }) {
   const router = express.Router();
   router.use(express.json({ limit: '256kb' }));
   router.use(asyncRoute(async (req, res, next) => {
@@ -121,6 +121,10 @@ function createPlatformRouter({ auth, store, secretBox, resolveConnection, makeC
       serviceRoleSecret: secretBox.seal(connection.serviceRoleKey),
       managementTokenSecret: secretBox.seal(connection.managementToken),
     });
+    if (typeof drive?.ensureWorkshopStructure !== 'function') {
+      reject(503, 'drive_not_configured', 'No fue posible preparar los documentos del taller.');
+    }
+    await drive.ensureWorkshopStructure({ id: row.id, name: row.name });
     res.status(201).json({ workshop: publicWorkshop(row) });
   }));
 
