@@ -45,6 +45,7 @@ async function reference() {
   await db.exec(migration('supabase/migrations/20260913225307_installation_contract.sql'));
   await db.exec(migration('workshop-template/supabase/migrations/20260913230822_workshop_access_guards.sql'));
   await db.exec(migration('workshop-template/supabase/migrations/20260914030000_workshop_installation_defaults.sql'));
+  await db.exec(migration('workshop-template/supabase/migrations/20260917185322_orders_write_gate.sql'));
   return db;
 }
 
@@ -84,7 +85,7 @@ test('an installed workshop matches the reviewed template', async () => {
         rls_enabled: [...expected.values()]
           .filter(item => item.kind === 'rls' && item.def.startsWith('enabled=true')).length,
       },
-      { table: 37, policy: 100, function: 104, trigger: 48, sequence: 8, rls_enabled: 36 },
+      { table: 37, policy: 100, function: 105, trigger: 51, sequence: 8, rls_enabled: 36 },
     );
   } finally {
     await expectedDb.close();
@@ -102,11 +103,8 @@ test('installation defaults keep the same values in both paths', async () => {
       (select count(*)::int from public.vehicleapp_schema_migrations) as ledger`;
     const expected = (await expectedDb.query(query)).rows[0];
     const actual = (await actualDb.query(query)).rows[0];
-    assert.deepEqual(expected, { cutover_rows: 1, bypass: false, ledger: 1 });
-    assert.deepEqual(
-      { cutover_rows: actual.cutover_rows, bypass: actual.bypass, ledger: 4 },
-      { cutover_rows: 1, bypass: false, ledger: 4 },
-    );
+    assert.deepEqual(expected, { cutover_rows: 1, bypass: false, ledger: 2 });
+    assert.deepEqual(actual, { cutover_rows: 1, bypass: false, ledger: 5 });
   } finally {
     await expectedDb.close();
     await actualDb.close();

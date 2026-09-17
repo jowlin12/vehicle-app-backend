@@ -57,6 +57,16 @@ bypass disabled) and the hourly `finalizar-formatos-liquidados` cron job. It is
 idempotent and additive; a workshop installed before this migration keeps its
 business rows and receives only the missing defaults.
 
+`20260917185322_orders_write_gate.sql` adds a database trigger to `formatos`,
+`servicios` and `repuestos` in newly installed workshops. When the private
+installation's `orders_enabled` flag is false or its row is missing, inserts,
+updates and deletes fail even through the direct Supabase client and the
+offline mutation RPC. Existing rows remain readable and unchanged; enabling
+the flag again permits pending writes to retry. The gate also affects background
+jobs that modify these tables. It is not connected to the central module list
+yet, and it does not enforce other future paid modules. Do not apply it to the
+original workshop until its contract, jobs and rollback have been tested.
+
 For production packaging, keep every SQL file under `platform/template` in sync
 with the matching source migration in the Flutter repository. The tests compare
 the packaged files with those sources in the development monorepo.

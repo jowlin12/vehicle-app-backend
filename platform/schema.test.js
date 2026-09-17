@@ -67,6 +67,8 @@ test('backend provisioning bundle matches the reviewed workshop template', () =>
       'Backend/platform/template/20260913230822_workshop_access_guards.sql'],
     ['workshop-template/supabase/migrations/20260914030000_workshop_installation_defaults.sql',
       'Backend/platform/template/20260914030000_workshop_installation_defaults.sql'],
+    ['workshop-template/supabase/migrations/20260917185322_orders_write_gate.sql',
+      'Backend/platform/template/20260917185322_orders_write_gate.sql'],
     ['workshop-template/verify-orders.sql', 'Backend/platform/template/verify-orders.sql'],
   ];
   for (const [source, packaged] of pairs) assert.equal(migration(packaged), migration(source));
@@ -92,6 +94,9 @@ test('workshop baseline installs in an empty embedded PostgreSQL', async () => {
     await db.exec(migration('supabase/migrations/20260913225307_installation_contract.sql'));
     await db.exec(migration('workshop-template/supabase/migrations/20260913230822_workshop_access_guards.sql'));
     await db.exec(migration('workshop-template/supabase/migrations/20260914030000_workshop_installation_defaults.sql'));
+    await db.exec(migration('workshop-template/supabase/migrations/20260917185322_orders_write_gate.sql'));
+    await db.query(`insert into public.vehicleapp_installation(singleton, installation_id, schema_version, orders_enabled)
+      values(true, $1, 'test', true)`, ['80000000-0000-4000-8000-000000000001']);
     const result = await db.query("select count(*)::int as count from information_schema.tables where table_schema='public' and table_type='BASE TABLE'");
     assert.equal(result.rows[0].count, 36);
     const defaults = await db.query(`select
@@ -109,5 +114,41 @@ test('workshop baseline installs in an empty embedded PostgreSQL', async () => {
     await db.exec('set role authenticated');
     await assert.rejects(db.query("update profiles set role='admin'"), /permission denied/);
     assert.equal((await db.query('select public.vehicleapp_installation_contract() as contract')).rows[0].contract, null);
+
+    await db.exec('reset role');
+    await db.query(`insert into auth.users(id, email, raw_user_meta_data)
+      values($1, 'gate-test@example.invalid', '{}'::jsonb)`, ['71000000-0000-4000-8000-000000000002']);
+    await db.query(`update public.profiles set role='admin' where id=$1`, ['71000000-0000-4000-8000-000000000002']);
+    await db.exec(`update public.vehicleapp_installation set orders_enabled=false;
+      select set_config('request.jwt.claim.sub','71000000-0000-4000-8000-000000000002',false);
+      select set_config('request.jwt.claim.role','authenticated',false);
+      set role authenticated;`);
+    const payload = JSON.stringify({ data: {
+      placa: 'QA9999', marca: 'QA', tipo_vehiculo: 'Prueba',
+      nombre_cliente: 'Cliente sintético', tipo_formato: 'SERVICIO', estado: 'ACTIVO',
+      costo_mano_obra: 0, costo_repuestos: 0,
+    } });
+    await assert.rejects(db.query('select public.apply_offline_mutation($1,$2,$3,$4::jsonb)',
+      ['72000000-0000-4000-8000-000000000011', 'format.create', 'format:QA9999', payload]),
+    /orders_module_disabled/);
+    for (const statement of [
+      "insert into public.formatos(placa) values('QA9999')",
+      "insert into public.servicios(formato_folio, servicio) values('QA9999','Servicio QA')",
+      "insert into public.repuestos(formato_folio, descripcion) values('QA9999','Repuesto QA')",
+    ]) await assert.rejects(db.query(statement), /orders_module_disabled/);
+    assert.equal((await db.query('select count(*)::int as count from public.formatos')).rows[0].count, 0);
+
+    await db.exec('reset role; update public.vehicleapp_installation set orders_enabled=true; set role authenticated;');
+    const resumed = await db.query('select public.apply_offline_mutation($1,$2,$3,$4::jsonb) as result',
+      ['72000000-0000-4000-8000-000000000011', 'format.create', 'format:QA9999', payload]);
+    assert.equal(resumed.rows[0].result.status, 'applied');
+    const formatId = resumed.rows[0].result.result.id;
+    await db.exec('reset role; update public.vehicleapp_installation set orders_enabled=false; set role authenticated;');
+    assert.equal((await db.query('select count(*)::int as count from public.formatos where id=$1',
+      [formatId])).rows[0].count, 1);
+    await assert.rejects(db.query('update public.formatos set nombre_cliente=$1 where id=$2',
+      ['No permitido', formatId]), /orders_module_disabled/);
+    await assert.rejects(db.query('delete from public.formatos where id=$1',
+      [formatId]), /orders_module_disabled/);
   } finally { await db.close(); }
 });

@@ -4,12 +4,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { reject } = require('./errors');
 
-const SCHEMA_VERSION = '20260914.2';
+const SCHEMA_VERSION = '20260917.1';
 const MIGRATION_FILES = [
   '20260913225816_workshop_baseline.sql',
   '20260913225307_installation_contract.sql',
   '20260913230822_workshop_access_guards.sql',
   '20260914030000_workshop_installation_defaults.sql',
+  '20260917185322_orders_write_gate.sql',
 ];
 
 function templates(directory = path.join(__dirname, 'template')) {
