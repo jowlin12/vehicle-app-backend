@@ -128,6 +128,30 @@ function createProvisioner({ fetchImpl = global.fetch, makeServiceClient, templa
     return db;
   }
 
+  async function verifyWorkshopInstallation(connection, workshopId, { required = false } = {}) {
+    const hasInstallation = rowsFrom(await query(connection, `
+      select to_regclass('public.vehicleapp_installation') is not null as has_installation;`))[0]
+      ?.has_installation === true;
+    if (!hasInstallation) {
+      if (required) reject(409, 'managed_installation_missing',
+        'La base no contiene una instalación registrada que se pueda actualizar.');
+      return null;
+    }
+
+    const installation = rowsFrom(await query(connection, `
+      select installation_id::text, schema_version
+      from public.vehicleapp_installation where singleton;`))[0] || null;
+    if (!installation) {
+      if (required) reject(409, 'managed_installation_missing',
+        'La base no contiene una instalación registrada que se pueda actualizar.');
+      return null;
+    }
+    if (String(installation.installation_id).toLowerCase() !== String(workshopId).toLowerCase()) {
+      reject(409, 'installation_mismatch', 'La base de datos ya está vinculada a otro taller.');
+    }
+    return installation;
+  }
+
   async function prepareSchema(connection) {
     const preflight = rowsFrom(await query(connection, `
       select to_regclass('public.vehicleapp_schema_migrations') is not null as has_ledger,
@@ -172,6 +196,7 @@ function createProvisioner({ fetchImpl = global.fetch, makeServiceClient, templa
 
   async function provision({ connection, workshopId, ownerEmail, ownerPassword }) {
     const db = await verifyProject(connection);
+    await verifyWorkshopInstallation(connection, workshopId);
     await prepareSchema(connection);
     await query(connection, `do $$ begin
       if exists(select 1 from public.vehicleapp_installation where singleton
@@ -198,6 +223,7 @@ function createProvisioner({ fetchImpl = global.fetch, makeServiceClient, templa
 
   async function upgrade({ connection, workshopId }) {
     const db = await verifyProject(connection);
+    await verifyWorkshopInstallation(connection, workshopId, { required: true });
     await prepareSchema(connection);
     const { data, error } = await db.from('vehicleapp_installation')
       .select('installation_id, schema_version')
