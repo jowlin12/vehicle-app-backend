@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "node --test drive-service.test.js platform/*.test.js",
+    "test": "node --test --test-concurrency=1 drive-service.test.js platform/*.test.js",
     "schema:baseline": "node platform/schema-baseline.js schema-baseline.json",
     "verificar:voz": "node --env-file=.env verificar-voz.js"
   },

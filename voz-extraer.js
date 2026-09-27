@@ -97,7 +97,7 @@ class ErrorProveedor extends Error {
 
 // --- Groq (gratis) ---------------------------------------------------------
 
-async function extraerConGroq(contexto) {
+async function extraerConGroq(contexto, { signal } = {}) {
   let respuesta;
   try {
     respuesta = await fetch(URL_GROQ, {
@@ -130,7 +130,7 @@ async function extraerConGroq(contexto) {
           { role: 'user', content: JSON.stringify(contexto) },
         ],
       }),
-      signal: AbortSignal.timeout(TIEMPO_LIMITE_MS),
+      signal: signal || AbortSignal.timeout(TIEMPO_LIMITE_MS),
     });
   } catch (error) {
     throw new ErrorProveedor('groq', error?.name === 'TimeoutError'
@@ -163,7 +163,7 @@ async function extraerConGroq(contexto) {
 
 let clienteAnthropic = null;
 
-async function extraerConAnthropic(contexto) {
+async function extraerConAnthropic(contexto, { signal } = {}) {
   if (!clienteAnthropic) {
     const Anthropic = require('@anthropic-ai/sdk');
     clienteAnthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -185,7 +185,7 @@ async function extraerConAnthropic(contexto) {
       format: { type: 'json_schema', schema: ESQUEMA },
     },
     messages: [{ role: 'user', content: JSON.stringify(contexto) }],
-  });
+  }, signal ? { signal } : undefined);
 
   if (respuesta.stop_reason === 'refusal') {
     throw new ErrorProveedor('anthropic', 'el modelo se negó a responder');

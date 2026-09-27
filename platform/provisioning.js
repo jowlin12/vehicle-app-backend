@@ -4,14 +4,40 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { reject } = require('./errors');
 
-const SCHEMA_VERSION = '20260917.1';
+const SCHEMA_VERSION = '20260927.1';
 const MIGRATION_FILES = [
   '20260913225816_workshop_baseline.sql',
   '20260913225307_installation_contract.sql',
   '20260913230822_workshop_access_guards.sql',
   '20260914030000_workshop_installation_defaults.sql',
   '20260917185322_orders_write_gate.sql',
+  '20260925221818_orders_paused_offline_defer.sql',
+  '20260926034159_orders_subscription_expiry.sql',
+  '20260926120000_supplier_invoices_module.sql',
+  '20260926120001_gate_customer_invoices_by_orders_module.sql',
+  '20260926163134_settlements_module.sql',
+  '20260926174523_workshop_member_session_guards.sql',
+  '20260927041754_advance_managed_schema_version_20260926_5.sql',
+  '20260927064629_electronic_invoices_module.sql',
 ];
+const MODULE_ACCESS_FIELDS = Object.freeze({
+  orders: Object.freeze({ enabled: 'orders_enabled', expiresAt: 'orders_expires_at', label: 'Órdenes' }),
+  supplier_invoices: Object.freeze({
+    enabled: 'supplier_invoices_enabled',
+    expiresAt: 'supplier_invoices_expires_at',
+    label: 'Facturas de proveedores',
+  }),
+  settlements: Object.freeze({
+    enabled: 'settlements_enabled',
+    expiresAt: 'settlements_expires_at',
+    label: 'Liquidaciones',
+  }),
+  electronic_invoices: Object.freeze({
+    enabled: 'electronic_invoices_enabled',
+    expiresAt: 'electronic_invoices_expires_at',
+    label: 'Facturación electrónica',
+  }),
+});
 
 function templates(directory = path.join(__dirname, 'template')) {
   return {
@@ -154,7 +180,7 @@ function createProvisioner({ fetchImpl = global.fetch, makeServiceClient, templa
       end if;
       insert into public.vehicleapp_installation(singleton, installation_id, schema_version,
         verified_at, orders_enabled)
-      values (true, '${workshopId}'::uuid, '${SCHEMA_VERSION}', null, true)
+      values (true, '${workshopId}'::uuid, '${SCHEMA_VERSION}', null, false)
       on conflict(singleton) do update set schema_version=excluded.schema_version;
     end $$;`);
     const operationalUserId = await ensureOwner(db, ownerEmail, ownerPassword);
@@ -170,7 +196,98 @@ function createProvisioner({ fetchImpl = global.fetch, makeServiceClient, templa
     return { operationalUserId, schemaVersion: SCHEMA_VERSION };
   }
 
-  return Object.freeze({ provision });
+  async function upgrade({ connection, workshopId }) {
+    const db = await verifyProject(connection);
+    await prepareSchema(connection);
+    const { data, error } = await db.from('vehicleapp_installation')
+      .select('installation_id, schema_version')
+      .eq('singleton', true)
+      .maybeSingle();
+    if (error || data?.installation_id !== workshopId ||
+        data?.schema_version !== SCHEMA_VERSION) {
+      reject(409, 'installation_upgrade_failed', 'La instalación no quedó en la versión esperada.');
+    }
+    return { schemaVersion: data.schema_version };
+  }
+
+  async function getModuleAccess({ connection, workshopId, module }) {
+    const fields = MODULE_ACCESS_FIELDS[module];
+    if (!fields) reject(400, 'unsupported_module', 'El módulo no está disponible en esta versión.');
+    const db = makeServiceClient(connection);
+    const { data: current, error: readError } = await db.from('vehicleapp_installation')
+      .select(`installation_id, verified_at, ${fields.enabled}, ${fields.expiresAt}`)
+      .eq('singleton', true)
+      .maybeSingle();
+    if (readError || current?.installation_id !== workshopId || !current.verified_at) {
+      reject(409, 'installation_not_managed', 'La base no es una instalación administrada y verificada.');
+    }
+    return {
+      enabled: current[fields.enabled] === true,
+      expiresAt: current[fields.expiresAt] || null,
+    };
+  }
+
+  async function setModuleEnabled({ connection, workshopId, module, enabled }) {
+    const fields = MODULE_ACCESS_FIELDS[module];
+    if (!fields) reject(400, 'unsupported_module', 'El módulo no está disponible en esta versión.');
+    const current = await getModuleAccess({ connection, workshopId, module });
+    if (current.enabled === enabled && current.expiresAt == null) return { enabled };
+    const db = makeServiceClient(connection);
+    const { data, error } = await db.from('vehicleapp_installation')
+      .update({ [fields.enabled]: enabled, [fields.expiresAt]: null })
+      .eq('singleton', true)
+      .eq('installation_id', workshopId)
+      .select(`${fields.enabled}, ${fields.expiresAt}`)
+      .maybeSingle();
+    if (error || data?.[fields.enabled] !== enabled || data?.[fields.expiresAt] != null) {
+      reject(503, 'module_update_failed', `No fue posible cambiar el módulo ${fields.label.toLowerCase()} del taller.`);
+    }
+    return { enabled };
+  }
+
+  async function setModuleAccess({ connection, workshopId, module, enabled, expiresAt }) {
+    const fields = MODULE_ACCESS_FIELDS[module];
+    if (!fields) reject(400, 'unsupported_module', 'El módulo no está disponible en esta versión.');
+    if (typeof enabled !== 'boolean' ||
+        (expiresAt != null && !Number.isFinite(Date.parse(expiresAt)))) {
+      reject(400, 'invalid_module_access', 'El vencimiento del módulo no es válido.');
+    }
+    const db = makeServiceClient(connection);
+    const current = await getModuleAccess({ connection, workshopId, module });
+    const { data, error } = await db.from('vehicleapp_installation')
+      .update({ [fields.enabled]: enabled, [fields.expiresAt]: expiresAt })
+      .eq('singleton', true)
+      .eq('installation_id', workshopId)
+      .select(`${fields.enabled}, ${fields.expiresAt}`)
+      .maybeSingle();
+    const actualValue = data?.[fields.expiresAt];
+    const actualExpiry = actualValue == null ? null : Date.parse(actualValue);
+    const expectedExpiry = expiresAt == null ? null : Date.parse(expiresAt);
+    const expiryMatches = expectedExpiry == null
+      ? actualExpiry == null
+      : Number.isFinite(actualExpiry) && Math.abs(actualExpiry - expectedExpiry) <= 1000;
+    if (error || data?.[fields.enabled] !== enabled ||
+        !expiryMatches) {
+      reject(503, 'module_access_update_failed', `No fue posible actualizar el acceso al módulo ${fields.label.toLowerCase()}.`);
+    }
+    return { previous: current, enabled, expiresAt };
+  }
+
+  const setOrdersEnabled = input => setModuleEnabled({ ...input, module: 'orders' });
+  const getOrdersAccess = input => getModuleAccess({ ...input, module: 'orders' });
+  const setOrdersAccess = input => setModuleAccess({ ...input, module: 'orders' });
+
+  return Object.freeze({
+    provision,
+    upgrade,
+    setOrdersEnabled,
+    getOrdersAccess,
+    setOrdersAccess,
+    getModuleAccess,
+    setModuleEnabled,
+    setModuleAccess,
+    schemaVersion: SCHEMA_VERSION,
+  });
 }
 
 module.exports = { SCHEMA_VERSION, createProvisioner, findUser, migrationTransaction, rowsFrom, templates };

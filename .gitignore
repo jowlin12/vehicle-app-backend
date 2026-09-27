@@ -68,3 +68,4 @@ uploads/
 
 # Local development
 .vercel
+.env.local

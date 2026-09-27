@@ -1,6 +1,29 @@
 -- Synthetic acceptance transaction. Run ONLY on an isolated workshop database.
 -- Does not send invitations, emit invoices or keep users/orders after rollback.
 begin;
+-- Do not mark a newer template ready if a later migration bypasses member guards.
+do $$
+begin
+  if exists(select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+    where n.nspname='public' and c.relkind in ('r','p') and c.relrowsecurity
+    and not exists(select 1 from pg_policy p where p.polrelid=c.oid
+      and p.polname='workshop_member_access' and not p.polpermissive)) then
+    raise exception 'workshop member policy missing';
+  end if;
+  if exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+    where n.nspname='public' and p.prokind='f'
+      and (p.prosecdef or has_function_privilege('authenticated',p.oid,'execute'))
+      and p.prorettype not in ('trigger'::regtype,'event_trigger'::regtype)
+      and p.proname not in ('get_email_by_username','workshop_access_status')
+      and not exists(select 1 from pg_depend d where d.objid=p.oid and d.deptype='e')
+      and p.prosrc not like '%private.require_workshop_member()%') then
+    raise exception 'workshop member RPC guard missing';
+  end if;
+end;
+$$;
+-- The acceptance transaction may temporarily exercise a paused installation;
+-- rollback restores the original module state.
+update public.vehicleapp_installation set orders_enabled = true where singleton;
 insert into auth.users(id, email, raw_user_meta_data)
 values ('71000000-0000-4000-8000-000000000001', 'vehicleapp-qa@example.invalid', '{"full_name":"VehicleApp QA"}');
 update public.profiles set role='admin' where id='71000000-0000-4000-8000-000000000001';

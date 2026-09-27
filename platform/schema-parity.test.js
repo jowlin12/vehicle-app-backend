@@ -17,7 +17,7 @@ const {
   snapshot,
   summarize,
 } = require('./schema-inventory');
-const { migrationTransaction, templates } = require('./provisioning');
+const { SCHEMA_VERSION, migrationTransaction, templates } = require('./provisioning');
 
 const root = path.resolve(__dirname, '../..');
 const migration = relative => fs.readFileSync(path.join(root, relative), 'utf8');
@@ -29,6 +29,7 @@ async function database() {
   const db = new PGlite({ extensions: { pgcrypto, uuid_ossp } });
   await db.exec(`create role anon; create role authenticated; create role service_role bypassrls;
     create schema auth; create table auth.users(id uuid primary key, email text, raw_user_meta_data jsonb);
+    create table auth.sessions(id uuid primary key,user_id uuid references auth.users(id));
     create function auth.uid() returns uuid language sql as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
     create function auth.role() returns text language sql as $$ select current_setting('request.jwt.claim.role',true) $$;
     create function auth.jwt() returns jsonb language sql as $$ select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb $$;
@@ -46,6 +47,14 @@ async function reference() {
   await db.exec(migration('workshop-template/supabase/migrations/20260913230822_workshop_access_guards.sql'));
   await db.exec(migration('workshop-template/supabase/migrations/20260914030000_workshop_installation_defaults.sql'));
   await db.exec(migration('workshop-template/supabase/migrations/20260917185322_orders_write_gate.sql'));
+  await db.exec(migration('workshop-template/supabase/migrations/20260925221818_orders_paused_offline_defer.sql'));
+  await db.exec(migration('workshop-template/supabase/migrations/20260926034159_orders_subscription_expiry.sql'));
+  await db.exec(migration('workshop-template/supabase/migrations/20260926120000_supplier_invoices_module.sql'));
+  await db.exec(migration('workshop-template/supabase/migrations/20260926120001_gate_customer_invoices_by_orders_module.sql'));
+  await db.exec(migration('workshop-template/supabase/migrations/20260926163134_settlements_module.sql'));
+  await db.exec(migration('workshop-template/supabase/migrations/20260926174523_workshop_member_session_guards.sql'));
+  await db.exec(migration('workshop-template/supabase/migrations/20260927041754_advance_managed_schema_version_20260926_5.sql'));
+  await db.exec(migration('workshop-template/supabase/migrations/20260927064629_electronic_invoices_module.sql'));
   return db;
 }
 
@@ -85,7 +94,7 @@ test('an installed workshop matches the reviewed template', async () => {
         rls_enabled: [...expected.values()]
           .filter(item => item.kind === 'rls' && item.def.startsWith('enabled=true')).length,
       },
-      { table: 37, policy: 100, function: 105, trigger: 51, sequence: 8, rls_enabled: 36 },
+      { table: 39, policy: 139, function: 199, trigger: 63, sequence: 8, rls_enabled: 38 },
     );
   } finally {
     await expectedDb.close();
@@ -104,10 +113,30 @@ test('installation defaults keep the same values in both paths', async () => {
     const expected = (await expectedDb.query(query)).rows[0];
     const actual = (await actualDb.query(query)).rows[0];
     assert.deepEqual(expected, { cutover_rows: 1, bypass: false, ledger: 2 });
-    assert.deepEqual(actual, { cutover_rows: 1, bypass: false, ledger: 5 });
+    assert.deepEqual(actual, { cutover_rows: 1, bypass: false, ledger: 13 });
   } finally {
     await expectedDb.close();
     await actualDb.close();
+  }
+});
+
+test('latest template migration upgrades an existing managed installation version', async () => {
+  const db = await database();
+  try {
+    await db.exec(LEDGER);
+    const migrations = templates().migrations;
+    for (const entry of migrations.slice(0, -1)) {
+      await db.exec(migrationTransaction(entry));
+    }
+    await db.exec(`insert into public.vehicleapp_installation(singleton, installation_id, schema_version)
+      values (true, '80000000-0000-4000-8000-000000000001', '20260926.4')`);
+    await db.exec(migrationTransaction(migrations.at(-1)));
+    const result = (await db.query(
+      'select schema_version from public.vehicleapp_installation where singleton',
+    )).rows[0];
+    assert.equal(result.schema_version, SCHEMA_VERSION);
+  } finally {
+    await db.close();
   }
 });
 

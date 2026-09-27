@@ -1,0 +1,15 @@
+# Pruebas y herramientas locales: no forman parte del servicio desplegado.
+**/*.test.js
+test-facturatech.js
+test-output.txt
+verificar-voz.js
+
+# Inventario de esquema generado y sus herramientas de desarrollo.
+schema-baseline.json
+platform/schema-baseline.js
+platform/schema-inventory.js
+platform/SCHEMA_PARITY_REPORT.md
+
+# Documentación que no sirve la API.
+README-server.md
+platform/README.md

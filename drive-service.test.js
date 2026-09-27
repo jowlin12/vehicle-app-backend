@@ -154,6 +154,145 @@ test('genera nombres legibles y únicos para fotos y facturas de proveedor', () 
     uploadRequestId: 'invoice-0002',
     now,
   }), 'factura-proveedor_ABC123_repuestos-gomez_20260915T184231Z_invoice-0002.pdf');
+  assert.equal(workshopFileName({
+    root: 'invoices',
+    folderPath: 'cotizaciones/F-123',
+    mimeType: 'application/pdf',
+    uploadRequestId: 'quote-0003',
+    now,
+  }), 'cotizacion_f-123_quote-0003.pdf');
+  assert.equal(workshopFileName({
+    root: 'invoices',
+    folderPath: 'facturas_electronicas/TN-0042',
+    mimeType: 'application/pdf',
+    uploadRequestId: 'invoice-0042',
+    now,
+  }), 'factura-electronica_tn-0042_invoice-0042.pdf');
+});
+
+test('guarda cotizaciones en la carpeta privada de facturas del taller', async () => {
+  const createdFolders = [];
+  let sequence = 0;
+  let uploadedMetadata;
+  const httpClient = {
+    async post() {
+      return {data: {access_token: 'access-token', expires_in: 3600}};
+    },
+    async request(options) {
+      if (options.method === 'GET' && options.url.endsWith('/files')) {
+        return {data: {files: []}};
+      }
+      if (options.method === 'POST' && options.url.includes('/upload/drive/v3/files')) {
+        const multipart = options.data.toString();
+        const boundary = multipart.match(/^--([^\r\n]+)/)?.[1];
+        assert.ok(boundary);
+        const metadataPart = multipart.split(`--${boundary}`)[1];
+        uploadedMetadata = JSON.parse(metadataPart.split('\r\n\r\n')[1].trim());
+        return {data: {id: 'quote-pdf', name: uploadedMetadata.name}};
+      }
+      if (options.method === 'POST' && options.url.endsWith('/drive/v3/files')) {
+        sequence += 1;
+        const folder = {id: `folder-${sequence}`, ...options.data};
+        createdFolders.push(folder);
+        return {data: {id: folder.id, name: folder.name}};
+      }
+      throw new Error(`Llamada inesperada: ${options.method} ${options.url}`);
+    },
+  };
+  const service = createDriveService(httpClient, testEnvironment());
+  const workshop = {
+    id: '80000000-0000-4000-8000-000000000001',
+    name: 'Taller Norte',
+  };
+
+  const result = await service.uploadPrivateFile({
+    buffer: Buffer.from('%PDF-cotizacion'),
+    fileName: 'cotizacion_f-123_quote-0003.pdf',
+    mimeType: 'application/pdf',
+    folderPath: 'cotizaciones/F-123',
+    root: 'invoices',
+    workshop,
+    uploadRequestId: 'quote-0003',
+    appProperties: {
+      vehicleAppWorkshop: workshop.id,
+      vehicleAppDocument: 'customer_quote',
+      vehicleAppFormat: 'F-123',
+    },
+  });
+
+  const pdfFolder = createdFolders.find(folder => folder.name === 'PDF');
+  const quoteFolder = createdFolders.find(folder => folder.name === 'F-123');
+  assert.ok(pdfFolder);
+  assert.ok(quoteFolder);
+  assert.equal(quoteFolder.parents[0], pdfFolder.id);
+  assert.equal(result.id, 'quote-pdf');
+  assert.deepEqual(uploadedMetadata.parents, [quoteFolder.id]);
+  assert.equal(uploadedMetadata.appProperties.vehicleAppWorkshop, workshop.id);
+  assert.equal(uploadedMetadata.appProperties.vehicleAppDocument, 'customer_quote');
+});
+
+test('guarda facturas electrónicas en la carpeta privada del taller', async () => {
+  const createdFolders = [];
+  let sequence = 0;
+  let uploadedMetadata;
+  const httpClient = {
+    async post() {
+      return {data: {access_token: 'access-token', expires_in: 3600}};
+    },
+    async request(options) {
+      if (options.method === 'GET' && options.url.endsWith('/files')) {
+        return {data: {files: []}};
+      }
+      if (options.method === 'POST' && options.url.includes('/upload/drive/v3/files')) {
+        const multipart = options.data.toString();
+        const boundary = multipart.match(/^--([^\r\n]+)/)?.[1];
+        assert.ok(boundary);
+        const metadataPart = multipart.split(`--${boundary}`)[1];
+        uploadedMetadata = JSON.parse(metadataPart.split('\r\n\r\n')[1].trim());
+        return {data: {id: 'electronic-pdf', name: uploadedMetadata.name}};
+      }
+      if (options.method === 'POST' && options.url.endsWith('/drive/v3/files')) {
+        sequence += 1;
+        const folder = {id: `folder-${sequence}`, ...options.data};
+        createdFolders.push(folder);
+        return {data: {id: folder.id, name: folder.name}};
+      }
+      throw new Error(`Llamada inesperada: ${options.method} ${options.url}`);
+    },
+  };
+  const service = createDriveService(httpClient, testEnvironment());
+  const workshop = {
+    id: '80000000-0000-4000-8000-000000000001',
+    name: 'Taller Norte',
+  };
+
+  const result = await service.uploadPrivateFile({
+    buffer: Buffer.from('%PDF-1.4\n%%EOF'),
+    fileName: 'factura-electronica_tn-0042_invoice-42.pdf',
+    mimeType: 'application/pdf',
+    folderPath: 'facturas_electronicas/TN-0042',
+    root: 'invoices',
+    workshop,
+    uploadRequestId: 'invoice-0042',
+    appProperties: {
+      vehicleAppWorkshop: workshop.id,
+      vehicleAppDocument: 'electronic_invoice',
+      vehicleAppInvoice: '42',
+    },
+  });
+
+  const invoiceFolder = createdFolders.find(folder => folder.name === 'TN-0042');
+  const pdfFolder = createdFolders.find(folder => folder.id === invoiceFolder?.parents[0]);
+  assert.ok(pdfFolder);
+  assert.ok(invoiceFolder);
+  assert.equal(pdfFolder.name, 'PDF');
+  assert.equal(createdFolders.find(folder => folder.id === pdfFolder.parents[0]).name, 'Electrónica');
+  assert.equal(invoiceFolder.parents[0], pdfFolder.id);
+  assert.equal(result.id, 'electronic-pdf');
+  assert.deepEqual(uploadedMetadata.parents, [invoiceFolder.id]);
+  assert.equal(uploadedMetadata.appProperties.vehicleAppWorkshop, workshop.id);
+  assert.equal(uploadedMetadata.appProperties.vehicleAppDocument, 'electronic_invoice');
+  assert.equal(uploadedMetadata.appProperties.vehicleAppInvoice, '42');
 });
 
 test('crea la estructura completa de un taller bajo Mi Taller APP', async () => {

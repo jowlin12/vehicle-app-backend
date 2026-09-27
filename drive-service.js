@@ -90,6 +90,12 @@ function workshopFileName({root, folderPath, mimeType, uploadRequestId, now = ne
     const category = asciiSlug(segments[1], 'general');
     return `foto_${plate}_${category}_${timestamp}_${requestSuffix}.${extension}`;
   }
+  if (root === 'invoices' && segments[0] === 'cotizaciones') {
+    return `cotizacion_${asciiSlug(segments[1], 'formato')}_${requestSuffix}.${extension}`;
+  }
+  if (root === 'invoices' && segments[0] === 'facturas_electronicas') {
+    return `factura-electronica_${asciiSlug(segments[1], 'documento')}_${requestSuffix}.${extension}`;
+  }
   const provider = segments[1] === 'facturas_compras' ? segments.slice(2).join('-') : segments.slice(1).join('-');
   return `factura-proveedor_${plate}_${asciiSlug(provider, 'sin-proveedor')}_${timestamp}_${requestSuffix}.${extension}`;
 }
@@ -496,6 +502,18 @@ function createDriveService(httpClient = axios, env = process.env) {
       return {
         rootId: structure.folderIds.vehicles,
         folderPath: `${segments[0]}/Facturas de proveedores/${segments.slice(2).join('/')}`,
+      };
+    }
+    if (root === 'invoices' && segments[0] === 'cotizaciones') {
+      return {
+        rootId: structure.folderIds.customerInvoices,
+        folderPath: segments.slice(1).join('/'),
+      };
+    }
+    if (root === 'invoices' && segments[0] === 'facturas_electronicas') {
+      return {
+        rootId: structure.folderIds.electronicInvoicePdf,
+        folderPath: segments.slice(1).join('/'),
       };
     }
     if (root === 'invoices') {

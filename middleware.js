@@ -6,6 +6,12 @@ const { supabase } = require('./database');
  */
 async function protect(req, res, next) {
   try {
+    // Legacy routes belong ONLY to the original workshop. Unknown context must
+    // fail closed instead of falling back to the original database or Drive.
+    if (req.headers['x-workshop-id'] &&
+        req.headers['x-workshop-id'] !== (process.env.LEGACY_WORKSHOP_ID || 'legacy')) {
+      return res.status(403).json({ error: 'Esta ruta pertenece al taller original.' });
+    }
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({ error: 'No se proporcionó un token, acceso denegado.' });

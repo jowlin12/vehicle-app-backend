@@ -94,7 +94,7 @@ test('admin access rejects a session minted for a different user', async () => {
     error => error.code === 'admin_session_failed');
 });
 
-async function withRouter({ isAdmin, membership = null }, run) {
+async function withRouter({ isAdmin, membership = null, existing = false }, run) {
   const linked = [];
   const router = createPlatformRouter({
     auth: {
@@ -104,12 +104,12 @@ async function withRouter({ isAdmin, membership = null }, run) {
     store: {
       isAdmin: async () => isAdmin,
       membership: async () => membership,
-      get: async () => ({ id: WORKSHOP_ID, name: 'Taller', status: 'ready', connection_ref: connection.projectRef, modules: ['orders'] }),
+      get: async () => ({ id: WORKSHOP_ID, name: 'Taller', status: 'ready', connection_ref: connection.projectRef, modules: ['orders'], schema_version: existing ? 'legacy-existing-v1' : 'managed-v1' }),
       linkMember: async (...args) => { linked.push(args); },
     },
     resolveConnection: async (ref, options) => {
       assert.equal(ref, connection.projectRef);
-      assert.equal(options.requireSecrets, true);
+      assert.equal(options.requireServiceRoleKey, true);
       return connection;
     },
     adminAccess: { enter: async input => {
@@ -157,6 +157,30 @@ test('admin-access route keeps the existing membership role', async () => {
 test('admin-access route rejects workshop members that are not global administrators', async () => {
   const membership = { role: 'employee', operational_user_id: OPERATIONAL_ID, active: true };
   await withRouter({ isAdmin: false, membership }, async (base, linked) => {
+    const response = await post(`${base}/workshops/${WORKSHOP_ID}/admin-access`);
+    assert.equal(response.status, 403);
+    assert.equal((await response.json()).code, 'platform_admin_required');
+    assert.equal(linked.length, 0);
+  });
+});
+
+test('legacy workshop lets a global administrator enter without upgrading its schema', async () => {
+  await withRouter({ isAdmin: true, existing: true }, async (base, linked) => {
+    const response = await post(`${base}/workshops/${WORKSHOP_ID}/admin-access`);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.workshop.schemaVersion, 'legacy-existing-v1');
+    assert.equal(body.userId, OPERATIONAL_ID);
+    assert.equal(body.session.refreshToken, 'refresh');
+    assert.deepEqual(linked, [[WORKSHOP_ID, ADMIN_ID, OPERATIONAL_ID, 'admin']]);
+    assert.equal(JSON.stringify(body).includes('service-role-secret'), false);
+    assert.equal(JSON.stringify(body).includes('management-token-secret'), false);
+  });
+});
+
+test('legacy workshop admin entry still rejects a non-global administrator', async () => {
+  const membership = { role: 'employee', operational_user_id: OPERATIONAL_ID, active: true };
+  await withRouter({ isAdmin: false, membership, existing: true }, async (base, linked) => {
     const response = await post(`${base}/workshops/${WORKSHOP_ID}/admin-access`);
     assert.equal(response.status, 403);
     assert.equal((await response.json()).code, 'platform_admin_required');

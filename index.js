@@ -36,6 +36,8 @@ app.use(express.json({limit: '4mb'}));
 const PORT = process.env.PORT || 5000;
 
 // Todos los endpoints de negocio requieren una sesión válida de Supabase.
+// Central administration is opt-in and never uses the operational service key.
+require('./platform').mountPlatform(app);
 app.use('/api', protect);
 
 // Modo dictado: convierte lo que dijo el mecánico en campos del formato.
@@ -128,18 +130,20 @@ app.delete('/api/drive/files/:fileId', async (req, res) => {
   }
 });
 
-app.post('/api/generate-invoice', async (req, res) => {
+app.post('/api/generate-invoice', requireAdmin, async (req, res) => {
   try {
-    // Extraer los datos del cuerpo de la solicitud con la estructura correcta
-    // Log detallado para depuración
-    console.log('Datos recibidos:', JSON.stringify(req.body, null, 2));
-
     const { formato, repuestos, servicios, costos } = req.body;
 
     // Validar que los datos necesarios existen
-    if (!formato || !costos) {
+    if (!formato || !costos || !formato.clave_key) {
       return res.status(400).json({ error: 'Faltan datos para generar la factura.' });
     }
+
+
+    // El PDF es solo el documento de la cotizacion: no toca importes, abonos ni
+    // estado. Por eso un formato historico (o ya liquidado) tambien puede
+    // generarlo, incluidos aquellos a los que nunca se les creo. La cuenta de
+    // una factura historica sigue siendo de solo lectura en la base de datos.
 
     const templateHtml = `
     <!DOCTYPE html>
@@ -344,41 +348,13 @@ app.post('/api/generate-invoice', async (req, res) => {
       response.data.driveUrl ||
       response.data;
 
-    // Lógica para crear o actualizar la factura en la base de datos
-    const { data: existingInvoice } = await supabase
-      .from('facturas')
-      .select('id_formato')
-      .eq('id_formato', formato.clave_key)
-      .maybeSingle();
-
-    if (existingInvoice) {
-      // Si existe, actualiza la factura
-      await supabase
-        .from('facturas')
-        .update({
-          precio_factura: costos.total,
-          factura_pdf: driveUrl
-        })
-        .eq('id_formato', formato.clave_key);
-    } else {
-      // Si no existe, crea una nueva factura
-      await supabase
-        .from('facturas')
-        .insert({
-          id_formato: formato.clave_key,
-          precio_factura: costos.total,
-          debe: costos.total,
-          factura_pdf: driveUrl,
-          estado: 'PENDIENTE',
-          cliente: formato.nombre_cliente
-        });
-    }
-
-    // Finalmente, actualiza la URL en la tabla de formatos también
-    await supabase
-      .from('formatos')
-      .update({ url_documento: driveUrl })
-      .eq('clave_key', formato.clave_key);
+    // La función centralizada crea/actualiza únicamente facturas nuevas y
+    // mantiene sincronizada la URL del formato dentro de la misma operación.
+    const { error: attachError } = await supabase.rpc('adjuntar_factura_pdf_v2', {
+      p_id_formato: formato.clave_key,
+      p_factura_pdf: driveUrl,
+    });
+    if (attachError) throw attachError;
 
     res.status(200).json({
       success: true,
@@ -405,6 +381,12 @@ app.post('/api/generate-invoice', async (req, res) => {
 
   } catch (error) {
     console.error('Error detallado al generar la factura:', error.response ? error.response.data : error.message);
+    // El mensaje que levanta la base de datos explica el motivo real (permisos,
+    // formato inexistente, ...). Devolverlo evita el 500 opaco que escondia la
+    // causa y dejaba al usuario sin saber por que no se guardo la cotizacion.
+    if (error.code && error.message) {
+      return res.status(409).json({ code: error.code, error: error.message });
+    }
     res.status(500).json({ error: 'Ocurrió un error en el servidor al generar el PDF con la API propia.' });
   }
 });

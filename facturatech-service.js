@@ -55,47 +55,102 @@ const TIPOS_DOCUMENTO_DIAN = {
     'DIE': '42'   // Documento de identificación extranjero
 };
 
+function normalizedProviderKey(value) {
+    return String(value).toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function findProviderValue(value, acceptedKeys, depth = 0) {
+    if (depth > 10 || value == null || typeof value !== 'object') return null;
+    const entries = Object.entries(value);
+    for (const acceptedKey of acceptedKeys.map(normalizedProviderKey)) {
+        const match = entries.find(([key, nested]) =>
+            normalizedProviderKey(key) === acceptedKey &&
+            (typeof nested === 'string' || typeof nested === 'number'));
+        if (match) {
+            const candidate = String(match[1]).trim();
+            if (candidate && candidate.length <= 2_000_000 && !/[\u0000-\u001f\u007f]/.test(candidate)) {
+                return candidate;
+            }
+        }
+    }
+    for (const nested of Object.values(value)) {
+        const found = findProviderValue(nested, acceptedKeys, depth + 1);
+        if (found != null) return found;
+    }
+    return null;
+}
+
 // --- FIN CONFIGURACIÓN INLINED ---
 
 class FacturatechService {
-    constructor() {
-        this.user = process.env.FACTURATECH_USER || '';
-        // IMPORTANTE: La contraseña ya viene hasheada (SHA-256) desde el soporte de Facturatech.
-        // NO volver a hashear, usar directamente.
-        this.password = process.env.FACTURATECH_PASSWORD || '';
-        // Entorno: usar la variable de entorno FACTURATECH_ENV
-        // Valores válidos: 'demo' o 'pro'
-        this.env = process.env.FACTURATECH_ENV || 'demo';
-        this.endpoint = `https://ws.facturatech.co/v2/${this.env}/index.php?wsdl`;
+    // Capture issuer, credentials, environment and invoice numbering per instance.
+    // The no-argument form preserves the legacy environment-based configuration.
+    constructor(configuration = {}) {
+        if (!configuration || typeof configuration !== 'object' || Array.isArray(configuration)) {
+            throw new TypeError('La configuración de Facturatech no es válida.');
+        }
 
-        console.log(`[Facturatech] Iniciando servicio en entorno: ${this.env}`);
-        console.log(`[Facturatech] WSDL Endpoint: ${this.endpoint}`);
-        // Debug de variables de entorno (ofuscado)
-        console.log('[Facturatech] Variables de entorno detectadas:', {
-            USER: !!process.env.FACTURATECH_USER,
-            PASS: !!process.env.FACTURATECH_PASSWORD,
-            PASS_PREVIEW: this.password ? `${this.password.substring(0, 8)}...` : 'vacío',
-            PASS_LENGTH: this.password?.length || 0,
-            PROXY: !!process.env.FACTURATECH_PROXY_URL,
-            PROXY_VAL: process.env.FACTURATECH_PROXY_URL ? (process.env.FACTURATECH_PROXY_URL.substring(0, 7) + '...') : 'undefined'
-        });
+        const tenantScoped = Object.keys(configuration).length > 0;
+        const environment = tenantScoped
+            ? (configuration.environment ?? 'demo')
+            : (process.env.FACTURATECH_ENV ?? 'demo');
+        if (!['demo', 'pro', 'production'].includes(environment)) {
+            throw new Error('El entorno de Facturatech debe ser demo o pro.');
+        }
+        const environmentPath = environment === 'production' ? 'pro' : environment;
 
-        // Configuración de proxy HTTP para evitar bloqueos de Cloudflare (opcional)
-        // Formato: http://user:pass@proxy.example.com:8080
+        let issuer;
+        let numbering;
+        let username;
+        let passwordHash;
+        if (tenantScoped) {
+            const credentials = configuration.credentials;
+            issuer = configuration.issuer;
+            numbering = configuration.numbering;
+            if (!credentials || typeof credentials !== 'object' || Array.isArray(credentials) ||
+                !issuer || typeof issuer !== 'object' || Array.isArray(issuer) ||
+                !numbering || typeof numbering !== 'object' || Array.isArray(numbering)) {
+                throw new Error('La configuración por taller requiere emisor, numeración y credenciales completos.');
+            }
+            const issuerFields = [
+                'tipoPersona', 'nit', 'dv', 'razonSocial', 'nombreComercial', 'direccion',
+                'codigoCiudad', 'ciudad', 'departamento', 'codigoDepto', 'pais',
+                'telefono', 'responsabilidad', 'regimen',
+            ];
+            if (issuerFields.some(field => typeof issuer[field] !== 'string' || !issuer[field].trim())) {
+                throw new Error('El perfil fiscal del taller está incompleto.');
+            }
+            if (typeof numbering.prefijo !== 'string' || !numbering.prefijo.trim() ||
+                typeof numbering.resolucion !== 'string' || !numbering.resolucion.trim() ||
+                !Number.isInteger(numbering.rangoDesde) || !Number.isInteger(numbering.rangoHasta) ||
+                numbering.rangoDesde < 1 || numbering.rangoHasta < numbering.rangoDesde) {
+                throw new Error('La numeración fiscal del taller está incompleta.');
+            }
+            username = credentials.username;
+            passwordHash = credentials.passwordHash;
+            if (typeof username !== 'string' || !username.trim() ||
+                typeof passwordHash !== 'string' || !/^[a-f0-9]{64}$/i.test(passwordHash)) {
+                throw new Error('Las credenciales fiscales del taller no están configuradas.');
+            }
+        } else {
+            issuer = EMISOR;
+            numbering = NUMERACION;
+            username = process.env.FACTURATECH_USER || '';
+            passwordHash = process.env.FACTURATECH_PASSWORD || '';
+        }
+
+        this.user = username;
+        // Facturatech recibe la contraseña ya hasheada (SHA-256).
+        this.password = passwordHash;
+        this.env = environmentPath;
+        this.endpoint = `https://ws.facturatech.co/v2/${environmentPath}/index.php?wsdl`;
+        this.tenantScoped = tenantScoped;
+        this.issuer = Object.freeze({ ...issuer });
+        this.numbering = Object.freeze({ ...numbering });
+
+        // Es una opción de transporte del servidor, nunca del perfil del taller.
         this.proxyUrl = process.env.FACTURATECH_PROXY_URL || '';
         this.proxyAgent = this.proxyUrl ? new HttpsProxyAgent(this.proxyUrl) : null;
-
-        if (!this.user) {
-            console.warn('[Facturatech] ADVERTENCIA: FACTURATECH_USER no está configurado');
-        }
-        if (!process.env.FACTURATECH_PASSWORD) {
-            console.warn('[Facturatech] ADVERTENCIA: FACTURATECH_PASSWORD no está configurado');
-        }
-        if (this.proxyAgent) {
-            console.log('[Facturatech] Proxy HTTP configurado:', this.proxyUrl.replace(/:[^:@]+@/, ':****@'));
-        } else {
-            console.log('[Facturatech] Modo directo (sin proxy). Los errores 502 son intermitentes de Cloudflare.');
-        }
     }
 
     /**
@@ -191,7 +246,7 @@ class FacturatechService {
             '[FACTURA]',
             '(ENC)',
             'ENC_1:INVOIC;',                                    // Tipo documento (INVOIC = factura)
-            `ENC_2:${EMISOR.nit};`,                             // NIT del emisor
+            `ENC_2:${this.issuer.nit};`,                        // NIT del emisor
             `ENC_3:${numeroFactura};`,                          // Número/Folio de factura
             'ENC_4:UBL 2.1;',                                   // Versión UBL
             'ENC_5:DIAN 2.1;',                                  // Versión DIAN
@@ -207,25 +262,25 @@ class FacturatechService {
             `ENC_22:${clean(referencia)};`,                     // Referencia/Observaciones
             '(/ENC)',
             '(EMI)',
-            `EMI_1:${EMISOR.tipoPersona};`,                     // Tipo de persona (1=jurídica, 2=natural)
-            `EMI_2:${EMISOR.nit};`,                             // NIT
+            `EMI_1:${this.issuer.tipoPersona};`,                 // Tipo de persona (1=jurídica, 2=natural)
+            `EMI_2:${this.issuer.nit};`,                         // NIT
             `EMI_3:31;`,                                        // Tipo de documento (31 = NIT)
-            `EMI_4:${EMISOR.dv};`,                              // Dígito de verificación
-            `EMI_6:${clean(EMISOR.razonSocial)};`,              // Razón social
-            `EMI_7:${clean(EMISOR.nombreComercial)};`,          // Nombre comercial
-            `EMI_10:${clean(EMISOR.direccion)};`,               // Dirección
-            `EMI_11:${EMISOR.codigoDepto};`,                    // Código departamento
-            `EMI_12:${clean(EMISOR.ciudad)};`,                  // Ciudad (nombre)
-            `EMI_13:${clean(EMISOR.departamento)};`,            // Departamento (nombre)
-            `EMI_14:${EMISOR.codigoCiudad};`,                   // Código municipio
-            `EMI_15:${EMISOR.pais};`,                           // País
-            `EMI_18:${clean(EMISOR.direccion)};`,               // Dirección fiscal
-            `EMI_19:${clean(EMISOR.departamento)};`,            // Departamento fiscal
+            `EMI_4:${this.issuer.dv};`,                         // Dígito de verificación
+            `EMI_6:${clean(this.issuer.razonSocial)};`,         // Razón social
+            `EMI_7:${clean(this.issuer.nombreComercial)};`,     // Nombre comercial
+            `EMI_10:${clean(this.issuer.direccion)};`,          // Dirección
+            `EMI_11:${this.issuer.codigoDepto};`,               // Código departamento
+            `EMI_12:${clean(this.issuer.ciudad)};`,             // Ciudad (nombre)
+            `EMI_13:${clean(this.issuer.departamento)};`,       // Departamento (nombre)
+            `EMI_14:${this.issuer.codigoCiudad};`,              // Código municipio
+            `EMI_15:${this.issuer.pais};`,                      // País
+            `EMI_18:${clean(this.issuer.direccion)};`,          // Dirección fiscal
+            `EMI_19:${clean(this.issuer.departamento)};`,       // Departamento fiscal
             `EMI_21:Colombia;`,                                 // País nombre
-            `EMI_22:${EMISOR.telefono};`,                       // Teléfono
-            `EMI_23:${EMISOR.responsabilidad};`,                // Responsabilidades fiscales
-            `EMI_24:${clean(EMISOR.nombreComercial)};`,         // Nombre del contacto
-            `EMI_25:${EMISOR.regimen};`,                        // Régimen fiscal
+            `EMI_22:${this.issuer.telefono};`,                  // Teléfono
+            `EMI_23:${this.issuer.responsabilidad};`,           // Responsabilidades fiscales
+            `EMI_24:${clean(this.issuer.nombreComercial)};`,    // Nombre del contacto
+            `EMI_25:${this.issuer.regimen};`,                   // Régimen fiscal
             '(/EMI)',
             '(ADQ)',
             `ADQ_1:${adquiriente.tipoPersona || '2'};`,         // Tipo persona
@@ -239,7 +294,7 @@ class FacturatechService {
             `ADQ_12:${clean(adquiriente.ciudad || 'Cucuta')};`, // Ciudad
             `ADQ_13:${clean(adquiriente.departamento || 'Norte de Santander')};`,
             `ADQ_14:${adquiriente.codigoCiudad || '54001'};`,   // Código municipio
-            `ADQ_15:${EMISOR.pais};`,                           // País
+            `ADQ_15:${this.issuer.pais};`,                      // País
             `ADQ_18:${clean(adquiriente.direccion)};`,          // Dirección fiscal
             `ADQ_19:${clean(adquiriente.departamento || 'Norte de Santander')};`,
             `ADQ_21:Colombia;`,                                 // País nombre
@@ -261,7 +316,7 @@ class FacturatechService {
             '(/TOT)',
             // Sección de impuestos (TAC) - Responsabilidades fiscales
             '(TAC)',
-            `TAC_1:${EMISOR.responsabilidad};`,                 // Códigos de responsabilidad
+            `TAC_1:${this.issuer.responsabilidad};`,            // Códigos de responsabilidad
             '(/TAC)',
             itemsLayout,
             '(/FACTURA)'  // Cierre del elemento raíz
@@ -292,7 +347,11 @@ class FacturatechService {
      * @param {number} attempt Contador de intentos
      */
     async _ejecutarSoap(method, params, customSoapAction = null, attempt = 1) {
-        const maxAttempts = 5;
+        // A workshop-scoped upload can create a provider document even when its
+        // response is lost. Never replay that mutation automatically; callers
+        // must reconcile the reserved number before deciding what to do next.
+        const retryable = !(this.tenantScoped && method === 'FtechAction.uploadInvoiceFileLayout');
+        const maxAttempts = retryable ? 5 : 1;
 
         // Determinar si params es ya un envelope (string) o parámetros para construirlo
         let envelope;
@@ -300,13 +359,6 @@ class FacturatechService {
             envelope = params;
         } else {
             envelope = this._crearSoapEnvelope(method, params);
-        }
-
-        // Log del envelope SOAP para diagnóstico (primeros 1500 chars)
-        if (attempt === 1) {
-            console.log('[Facturatech] ========== SOAP ENVELOPE ==========');
-            console.log(envelope.substring(0, 1500));
-            console.log('[Facturatech] ========== FIN SOAP ENVELOPE ==========');
         }
 
         console.log(`[Facturatech] Ejecutando método: ${method} (intento ${attempt}/${maxAttempts})`);
@@ -347,30 +399,23 @@ class FacturatechService {
             const response = await axios.post(this.endpoint, envelope, axiosConfig);
             const responseData = response.data;
 
-            // Log de respuesta completa para diagnóstico (si es menor a 2000 chars)
             console.log(`[Facturatech] Response length: ${responseData?.length || 0} chars`);
-            if (responseData && responseData.length < 2000) {
-                console.log('[Facturatech] RESPUESTA COMPLETA:');
-                console.log(responseData);
-            } else {
-                console.log('[Facturatech] Response preview:', responseData?.substring(0, 500));
-            }
 
             // Validar que la respuesta sea XML antes de parsear
             const trimmedData = (typeof responseData === 'string' ? responseData : '').trim();
             if (!trimmedData.startsWith('<?xml') && !trimmedData.startsWith('<')) {
                 console.error('[Facturatech] Respuesta no es XML válido. Posible error de Cloudflare/WAF.');
-                console.error('[Facturatech] Contenido COMPLETO recibido:', responseData);
+                console.error('[Facturatech] El proveedor devolvió una respuesta no XML.');
 
                 // Si falla, reintentar con backoff exponencial
                 if (attempt < maxAttempts) {
                     const delay = Math.pow(2, attempt) * 5000; // Backoff más lento: 10s, 20s, 40s, 80s
                     console.log(`[Facturatech] Reintentando en ${delay / 1000}s...`);
                     await new Promise(resolve => setTimeout(resolve, delay));
-                    return this._ejecutarSoap(method, params, attempt + 1);
+                    return this._ejecutarSoap(method, params, customSoapAction, attempt + 1);
                 }
 
-                throw new Error(`Respuesta de Facturatech no es XML válido. Contenido: ${responseData.substring(0, 200)}`);
+                throw new Error('Respuesta de Facturatech no válida.');
             }
 
             // Limpiar BOM y caracteres invisibles al inicio
@@ -387,14 +432,14 @@ class FacturatechService {
 
             return this._extraerRespuesta(result, method);
         } catch (error) {
-            console.error(`[Facturatech] Error en ${method} (intento ${attempt}):`, error.message);
+            console.error(`[Facturatech] Error en ${method} (intento ${attempt}).`);
 
             // Si es un error 502/503/504 y aún hay intentos, reintentar con backoff
             if (error.response && [502, 503, 504].includes(error.response.status) && attempt < maxAttempts) {
                 const delay = Math.pow(2, attempt) * 1000; // Backoff exponencial: 2s, 4s, 8s
                 console.log(`[Facturatech] Reintentando en ${delay / 1000}s con headers alternativos...`);
                 await new Promise(resolve => setTimeout(resolve, delay));
-                return this._ejecutarSoap(method, params, attempt + 1);
+                return this._ejecutarSoap(method, params, customSoapAction, attempt + 1);
             }
 
             // Si es error de parsing XML y aún hay intentos, reintentar
@@ -402,12 +447,9 @@ class FacturatechService {
                 const delay = Math.pow(2, attempt) * 1000;
                 console.log(`[Facturatech] Error de parsing XML, reintentando en ${delay / 1000}s...`);
                 await new Promise(resolve => setTimeout(resolve, delay));
-                return this._ejecutarSoap(method, params, attempt + 1);
+                return this._ejecutarSoap(method, params, customSoapAction, attempt + 1);
             }
 
-            if (error.response) {
-                console.error('[Facturatech] Response data:', error.response.data);
-            }
             throw error;
         }
     }
@@ -423,7 +465,7 @@ class FacturatechService {
                 result['soapenv:Envelope']?.['soapenv:Body'];
 
             if (!body) {
-                console.log('[Facturatech] Estructura de respuesta:', JSON.stringify(result, null, 2));
+                console.warn(`[Facturatech] Respuesta SOAP sin estructura esperada para ${method}.`);
                 return result;
             }
 
@@ -460,7 +502,7 @@ class FacturatechService {
 
             return { success: true, data: body };
         } catch (e) {
-            console.error('[Facturatech] Error extrayendo respuesta:', e);
+            console.error('[Facturatech] No fue posible interpretar la respuesta del proveedor.');
             return { success: false, error: e.message, raw: result };
         }
     }
@@ -477,15 +519,8 @@ class FacturatechService {
         // Asegurar formato limpio: trimming y sin BOM
         const sanitizedLayout = xmlLayout.trim().replace(/^\uFEFF/, '');
 
-        // Debug: Mostrar primeros bytes en HEX para detectar caracteres invisibles
-        const hexPreview = Buffer.from(sanitizedLayout.substring(0, 20), 'utf-8').toString('hex');
-        console.log(`Layout Start Hex: ${hexPreview}`);
-
-        // Log del layout completo para debug crítico
-        console.log('========== LAYOUT COMPLETO ==========');
-        console.log(sanitizedLayout);
-        console.log('========== FIN LAYOUT ==========');
-        console.log(`Layout length: ${sanitizedLayout.length} chars`);
+        // No registrar el layout: contiene identificación fiscal y datos personales.
+        console.log(`[Facturatech] Layout preparado (${sanitizedLayout.length} caracteres).`);
 
         // ================================================================
         // IMPORTANTE: Según la Figura 16 del manual de Facturatech,
@@ -496,9 +531,7 @@ class FacturatechService {
         // Eliminar saltos de línea - enviar todo en una sola línea
         const layoutOneLine = sanitizedLayout.replace(/\r?\n/g, '');
 
-        console.log('[Facturatech] Enviando layout en UNA SOLA LÍNEA (sin saltos)');
-        console.log(`[Facturatech] Layout preview: ${layoutOneLine.substring(0, 150)}...`);
-        console.log(`[Facturatech] Layout ends with: ...${layoutOneLine.substring(layoutOneLine.length - 50)}`);
+        console.log('[Facturatech] Enviando layout al proveedor.');
 
         // NOTA: this.password YA está hasheada en el constructor, no hashear de nuevo
         const params = {
@@ -513,15 +546,42 @@ class FacturatechService {
 
         const envelope = this._crearSoapEnvelope(method, params, namespace);
 
-        // Debug del Envelope
-        console.log('========== SOAP ENVELOPE ==========');
-        console.log(envelope);
-        console.log('========== FIN SOAP ENVELOPE ==========');
-
         // SOAPAction
         const soapAction = `"urn:FacturaTech#${method}"`;
 
-        return this._ejecutarSoap(method, envelope, soapAction);
+        const result = await this._ejecutarSoap(method, envelope, soapAction);
+        if (!result?.success) return result;
+
+        const findTransactionId = (value, depth = 0) => {
+            if (depth > 8 || value == null || typeof value !== 'object') return null;
+            for (const [key, nested] of Object.entries(value)) {
+                const normalizedKey = key.toLowerCase().replace(/[^a-z]/g, '');
+                if (normalizedKey === 'transaccionid' || normalizedKey === 'transactionid') {
+                    const candidate = String(nested ?? '').trim();
+                    if (candidate && candidate.length <= 100 && !/[\u0000-\u001f\u007f]/.test(candidate)) {
+                        return candidate;
+                    }
+                }
+            }
+            for (const nested of Object.values(value)) {
+                const found = findTransactionId(nested, depth + 1);
+                if (found) return found;
+            }
+            return null;
+        };
+
+        const transactionId = findTransactionId(result.data);
+        if (!transactionId) {
+            // A successful transport without the provider's transaction ID is
+            // still ambiguous: the invoice may already exist remotely.
+            return {
+                ...result,
+                success: false,
+                ambiguous: true,
+                error: 'Facturatech respondió sin el identificador de transacción.',
+            };
+        }
+        return {...result, transactionId};
     }
 
     /**
@@ -538,8 +598,8 @@ class FacturatechService {
         if (result.success && result.data) {
             return {
                 success: true,
-                status: result.data.status || result.data.return?.status,
-                message: result.data.message || result.data.return?.message,
+                status: findProviderValue(result.data, ['status', 'estado', 'code', 'codigo']),
+                message: findProviderValue(result.data, ['message', 'mensaje', 'description', 'descripcion']),
                 data: result.data
             };
         }
@@ -563,9 +623,9 @@ class FacturatechService {
         });
 
         if (result.success && result.data) {
-            const pdfBase64 = result.data.return || result.data.resourceData;
+            const pdfBase64 = findProviderValue(result.data, ['pdfBase64', 'resourceData', 'return']);
             return {
-                success: true,
+                success: !!pdfBase64,
                 pdfBase64: pdfBase64
             };
         }
@@ -615,9 +675,9 @@ class FacturatechService {
         });
 
         if (result.success && result.data) {
-            const cufe = result.data.return || result.data.resourceData;
+            const cufe = findProviderValue(result.data, ['cufe', 'resourceData', 'return']);
             return {
-                success: true,
+                success: !!cufe,
                 cufe: cufe
             };
         }
@@ -685,8 +745,8 @@ class FacturatechService {
     // ═══════════════════════════════════════════════════════════════
 
     /**
-     * Obtiene el siguiente número de factura disponible
-     * (En producción, esto debería consultarse de la base de datos)
+     * Lee un candidato al siguiente número. No reserva el consecutivo de forma
+     * atómica; la emisión multitaller debe sustituirlo por una reserva idempotente.
      */
     async obtenerSiguienteNumeroFactura(supabase) {
         try {
@@ -694,22 +754,38 @@ class FacturatechService {
             const { data, error } = await supabase
                 .from('facturas_electronicas')
                 .select('numero_factura')
-                .eq('prefijo', NUMERACION.prefijo)
+                .eq('prefijo', this.numbering.prefijo)
                 .order('numero_factura', { ascending: false })
                 .limit(1);
 
-            if (error) throw error;
+            if (error) throw new Error('Consulta del consecutivo fallida.');
 
             if (data && data.length > 0) {
-                const ultimoNumero = parseInt(data[0].numero_factura);
-                return ultimoNumero + 1;
+                const previous = Number(data[0].numero_factura);
+                if (!this.tenantScoped) return parseInt(data[0].numero_factura) + 1;
+                if (!Number.isSafeInteger(previous) || previous < 0) {
+                    throw new Error('El último consecutivo guardado no es válido.');
+                }
+                const nextNumber = Math.max(this.numbering.rangoDesde, previous + 1);
+                if (!Number.isSafeInteger(nextNumber) || nextNumber > this.numbering.rangoHasta) {
+                    throw new Error('El rango autorizado de numeración está agotado.');
+                }
+                return nextNumber;
             }
 
-            // Si no hay facturas, empezar desde el rango inicial
-            return NUMERACION.rangoDesde;
-        } catch (e) {
-            console.error('[Facturatech] Error obteniendo siguiente número:', e);
-            // Fallback: usar timestamp
+            if (!this.tenantScoped) return this.numbering.rangoDesde;
+            const nextNumber = this.numbering.rangoDesde;
+            if (!Number.isSafeInteger(nextNumber) || nextNumber > this.numbering.rangoHasta) {
+                throw new Error('El rango autorizado de numeración está agotado.');
+            }
+            return nextNumber;
+        } catch (_) {
+            console.error('[Facturatech] No fue posible consultar el consecutivo fiscal.');
+            // La ruta legacy conserva su comportamiento histórico. Una instalación
+            // por taller siempre falla cerrada: nunca inventa un consecutivo fiscal.
+            if (this.tenantScoped) {
+                throw new Error('No se pudo verificar el consecutivo fiscal del taller.');
+            }
             return Date.now() % 1000000;
         }
     }
