@@ -7,6 +7,9 @@ function checked(result) {
     reject(409, result.error.message, 'El acceso o el taller cambió. Actualiza el equipo antes de reintentar.');
   }
   if (result.error?.message === 'idempotency_conflict') reject(409, 'idempotency_conflict', 'La solicitud ya fue utilizada con otros datos.');
+  if (result.error?.message === 'subscription_plan_change_waits_until_expiry') {
+    reject(409, result.error.message, 'Tu plan sigue activo. Puedes renovar un plan con los mismos módulos; podrás cambiar de módulos cuando venza.');
+  }
   if (result.error?.message === 'facturatech_workshop_unavailable') {
     reject(409, result.error.message, 'La facturación electrónica de este taller todavía no está disponible.');
   }
