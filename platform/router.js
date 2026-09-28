@@ -710,6 +710,10 @@ function createPlatformRouter({ auth, store, secretBox, resolveConnection, makeC
 
   router.post('/workshops/:id/subscription-requests', asyncRoute(async (req, res) => {
     const { row } = await subscriptionManager(req);
+    const paymentSettings = await store.getPaymentSettings();
+    if (!hasConfiguredPaymentAccount(paymentSettings)) {
+      reject(409, 'billing_setup_incomplete', 'El administrador global aún no ha completado los datos para recibir transferencias.');
+    }
     if (!storage?.from) reject(503, 'receipt_storage_unavailable', 'Los comprobantes no están disponibles por ahora.');
     const requestId = uuid(req.body?.requestId);
     const planId = uuid(req.body?.planId);
