@@ -92,6 +92,10 @@ test('genera el PDF y lo guarda bajo la carpeta privada del taller con clave ide
   assert.equal(uploaded[0].uploadRequestId, uploaded[1].uploadRequestId);
   assert.equal(uploaded[0].buffer.toString(), '%PDF-test-payload');
   assert.match(requests[0].body.html, /Taller Norte/);
+  assert.match(requests[0].body.html,
+    /<td>Batería<\/td><td class="number">1<\/td><td class="number">\$ 150\.000<\/td><td class="number">\$ 150\.000<\/td>/);
+  assert.match(requests[0].body.html, /<span>Repuestos<\/span><strong>\$ 150\.000<\/strong>/);
+  assert.match(requests[0].body.html, /<td>Diagnóstico<\/td>/);
 });
 
 test('no sigue redirecciones del PDF hacia orígenes ajenos a Google Drive', async () => {

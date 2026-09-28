@@ -1187,20 +1187,33 @@ test('la cotización multitaller toma formato, servicios e importes de la base d
   const services = [{servicio: 'Servicio de prueba', precio_mano_obra: 160000, created_at: '2026-09-26'}];
   const rpcCalls = [];
   const quoteCalls = [];
+  const relatedFormatFilters = [];
   const dataByTable = {repuestos: parts, servicios: services};
   const db = {
     auth: {getUser: async () => ({data: {user: {id: OWNER_ID}}, error: null})},
     from(table) {
       const builder = {
+        query: {},
         select() { return this; },
-        eq() { return this; },
+        eq(column, value) {
+          this.query[column] = value;
+          if (['repuestos', 'servicios'].includes(table)) {
+            relatedFormatFilters.push({table, column, value});
+          }
+          return this;
+        },
         is() { return this; },
         order() { return this; },
         maybeSingle: async () => table === 'formatos'
           ? {data: format, error: null}
           : {data: {role: 'admin', is_active: true, deleted_at: null}, error: null},
         then(resolve, rejectPromise) {
-          return Promise.resolve({data: dataByTable[table] || [], error: null}).then(resolve, rejectPromise);
+          const relationColumn = table === 'repuestos' ? 'id_repuesto' : 'formato_folio';
+          const relationValue = format.folio;
+          const matchesFormat = !['repuestos', 'servicios'].includes(table) ||
+            this.query[relationColumn] === relationValue;
+          return Promise.resolve({data: matchesFormat ? dataByTable[table] || [] : [], error: null})
+            .then(resolve, rejectPromise);
         },
       };
       return builder;
@@ -1271,6 +1284,10 @@ test('la cotización multitaller toma formato, servicios e importes de la base d
   assert.equal(quoteCalls[0].format.nombre_cliente, 'Cliente real');
   assert.deepEqual(quoteCalls[0].repuestos, parts);
   assert.deepEqual(quoteCalls[0].servicios, services);
+  assert.ok(relatedFormatFilters.some(filter =>
+    filter.table === 'repuestos' && filter.column === 'id_repuesto' && filter.value === format.folio));
+  assert.ok(relatedFormatFilters.some(filter =>
+    filter.table === 'servicios' && filter.column === 'formato_folio' && filter.value === format.folio));
   assert.equal(quoteCalls[0].format.costo_total, 660000);
   assert.equal(rpcCalls.length, 1);
   assert.equal(rpcCalls[0].name, 'adjuntar_factura_pdf_v2');
@@ -1301,6 +1318,7 @@ function electronicInvoiceFixture({modules = ['orders', 'electronic_invoices'], 
     servicios: [{servicio: 'Cambio de filtro', precio_mano_obra: 160000,
       created_at: '2026-09-26'}],
   };
+  const relatedFormatFilters = [];
   let invoiceRecord = null;
   let claims = 0;
   let state = 'reserved';
@@ -1321,7 +1339,13 @@ function electronicInvoiceFixture({modules = ['orders', 'electronic_invoices'], 
         inserted: null,
         filter: null,
         select(value) { this.selection = value; return this; },
-        eq(column, value) { this.filter = {column, value}; return this; },
+        eq(column, value) {
+          this.filter = {column, value};
+          if (['repuestos', 'servicios'].includes(table)) {
+            relatedFormatFilters.push({table, column, value});
+          }
+          return this;
+        },
         is() { return this; },
         order() { return this; },
         insert(value) { this.inserted = value; return this; },
@@ -1343,7 +1367,12 @@ function electronicInvoiceFixture({modules = ['orders', 'electronic_invoices'], 
           return {data: invoiceRecord, error: null};
         },
         then(resolve, rejectPromise) {
-          return Promise.resolve({data: dataByTable[table] || [], error: null}).then(resolve, rejectPromise);
+          const relationColumn = table === 'repuestos' ? 'id_repuesto' : 'formato_folio';
+          const relationValue = format.folio;
+          const matchesFormat = !['repuestos', 'servicios'].includes(table) ||
+            this.filter?.column === relationColumn && this.filter.value === relationValue;
+          return Promise.resolve({data: matchesFormat ? dataByTable[table] || [] : [], error: null})
+            .then(resolve, rejectPromise);
         },
       };
       return builder;
@@ -1436,7 +1465,7 @@ function electronicInvoiceFixture({modules = ['orders', 'electronic_invoices'], 
   const app = express();
   app.use('/api/platform', router);
   return {
-    app, generated, recorded, invoicePdfUploads,
+    app, generated, recorded, invoicePdfUploads, relatedFormatFilters,
     get uploads() { return uploads; },
     get statusCalls() { return statusCalls; },
     get pdfDownloads() { return pdfDownloads; },
@@ -1483,6 +1512,10 @@ test('la emisión demo gestionada calcula con la orden operativa y un reintento 
   assert.deepEqual(f.generated[0].items.map(item => [item.codigo, item.precioUnitario]), [
     ['part-1', 500000], ['MO001', 160000],
   ]);
+  assert.ok(f.relatedFormatFilters.some(filter =>
+    filter.table === 'repuestos' && filter.column === 'id_repuesto' && filter.value === 'K-18'));
+  assert.ok(f.relatedFormatFilters.some(filter =>
+    filter.table === 'servicios' && filter.column === 'formato_folio' && filter.value === 'K-18'));
   assert.equal(f.generated[1].number, 1);
   assert.equal(f.state, 'submitted');
 });

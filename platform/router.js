@@ -1240,9 +1240,9 @@ function createPlatformRouter({ auth, store, secretBox, resolveConnection, makeC
 
     const [partsResult, servicesResult] = await Promise.all([
       db.from('repuestos').select('id, descripcion, cantidad, costo_unitario, created_at')
-        .eq('formato_folio', formatKey).is('deleted_at', null).order('created_at', {ascending: true}),
+        .eq('id_repuesto', format.folio).is('deleted_at', null).order('created_at', {ascending: true}),
       db.from('servicios').select('servicio, precio_mano_obra, created_at')
-        .eq('formato_folio', formatKey).is('deleted_at', null).order('created_at', {ascending: true}),
+        .eq('formato_folio', format.folio).is('deleted_at', null).order('created_at', {ascending: true}),
     ]);
     if (partsResult.error || servicesResult.error) {
       reject(503, 'format_details_unavailable', 'No fue posible consultar los valores de la orden.');
@@ -1563,9 +1563,9 @@ function createPlatformRouter({ auth, store, secretBox, resolveConnection, makeC
 
     const [partsResult, servicesResult] = await Promise.all([
       db.from('repuestos').select('descripcion, cantidad, costo_unitario, costo_total_linea, created_at')
-        .eq('formato_folio', formatKey).is('deleted_at', null).order('created_at', { ascending: true }),
+        .eq('id_repuesto', format.folio).is('deleted_at', null).order('created_at', { ascending: true }),
       db.from('servicios').select('servicio, precio_mano_obra, created_at')
-        .eq('formato_folio', formatKey).is('deleted_at', null).order('created_at', { ascending: true }),
+        .eq('formato_folio', format.folio).is('deleted_at', null).order('created_at', { ascending: true }),
     ]);
     if (partsResult.error || servicesResult.error) {
       reject(503, 'format_details_unavailable', 'No fue posible consultar los servicios y repuestos del formato.');
