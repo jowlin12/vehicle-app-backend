@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { reject } = require('./errors');
 
-const SCHEMA_VERSION = '20260927.1';
+const SCHEMA_VERSION = '20260928.1';
 const MIGRATION_FILES = [
   '20260913225816_workshop_baseline.sql',
   '20260913225307_installation_contract.sql',
@@ -19,6 +19,7 @@ const MIGRATION_FILES = [
   '20260926174523_workshop_member_session_guards.sql',
   '20260927041754_advance_managed_schema_version_20260926_5.sql',
   '20260927064629_electronic_invoices_module.sql',
+  '20260928084531_enable_settlement_part_profit_realtime.sql',
 ];
 const MODULE_ACCESS_FIELDS = Object.freeze({
   orders: Object.freeze({ enabled: 'orders_enabled', expiresAt: 'orders_expires_at', label: 'Órdenes' }),
