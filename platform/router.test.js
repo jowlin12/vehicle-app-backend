@@ -349,6 +349,20 @@ test('el propietario envía el comprobante y recibe solo el acceso provisional',
   app.use('/api/platform', router);
 
   await withServer(app, async base => {
+    const invalidReference = await fetch(`${base}/api/platform/workshops/${WORKSHOP_ID}/subscription-requests`, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer owner-session', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requestId: REQUEST_ID,
+        planId: 'a0000000-0000-4000-8000-000000000001',
+        extension: 'jpg',
+        paymentReference: 'R'.repeat(121),
+      }),
+    });
+    assert.equal(invalidReference.status, 400);
+    assert.equal((await invalidReference.json()).code, 'invalid_payment_reference');
+    assert.equal(calls.filter(([operation]) => operation === 'submit').length, 0);
+
     const response = await fetch(`${base}/api/platform/workshops/${WORKSHOP_ID}/subscription-requests`, {
       method: 'POST',
       headers: { Authorization: 'Bearer owner-session', 'Content-Type': 'application/json' },

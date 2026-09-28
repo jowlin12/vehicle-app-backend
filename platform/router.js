@@ -713,6 +713,15 @@ function createPlatformRouter({ auth, store, secretBox, resolveConnection, makeC
     if (!storage?.from) reject(503, 'receipt_storage_unavailable', 'Los comprobantes no están disponibles por ahora.');
     const requestId = uuid(req.body?.requestId);
     const planId = uuid(req.body?.planId);
+    const rawPaymentReference = req.body?.paymentReference;
+    if (rawPaymentReference != null && typeof rawPaymentReference !== 'string') {
+      reject(400, 'invalid_payment_reference', 'La referencia de transferencia no es válida.');
+    }
+    const paymentReference = typeof rawPaymentReference === 'string'
+      ? rawPaymentReference.trim() : '';
+    if ([...paymentReference].length > 120) {
+      reject(400, 'invalid_payment_reference', 'La referencia de transferencia no puede superar 120 caracteres.');
+    }
     const extension = typeof req.body?.extension === 'string' ? req.body.extension.toLowerCase() : '';
     if (!['jpg', 'jpeg', 'png', 'webp'].includes(extension)) {
       reject(400, 'invalid_subscription_receipt', 'Adjunta una imagen JPG, PNG o WebP.');
@@ -752,8 +761,7 @@ function createPlatformRouter({ auth, store, secretBox, resolveConnection, makeC
       requester: req.platformUser,
       planId,
       receiptPath,
-      paymentReference: typeof req.body?.paymentReference === 'string'
-        ? req.body.paymentReference.trim() : '',
+      paymentReference,
     });
     const synchronized = await syncSubscriptionAccess(result.workshop);
     res.status(result.created ? 201 : 200).json({
