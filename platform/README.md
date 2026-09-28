@@ -230,3 +230,12 @@ environment, successfully extracting brand, line, plate, year, odometer and
 service. The new route is still not deployed: Preview does not currently deliver
 the central service key or connection encryption key. No Production deployment
 or connected database changes were performed.
+
+## Manual subscription receipt review
+
+`GET /api/platform/subscriptions/review` returns pending request metadata without
+signed receipt URLs or private storage paths. Global administrators request a
+fresh image URL from `GET /api/platform/subscriptions/:id/receipt` only when they
+open a receipt. The route rechecks that the request is still pending or under
+review, validates the workshop-scoped storage path and image extension, and
+returns a non-cacheable URL that expires after five minutes.

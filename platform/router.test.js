@@ -601,22 +601,28 @@ test('no exige un plan si falta un plan activo o una cuenta de transferencia', a
   }
 });
 
-test('solo un administrador global puede crear, revisar y firmar recibos', async () => {
+test('firma el comprobante pendiente bajo demanda sin exponer su ruta privada', async () => {
   let capturedSignedPath;
+  let signedCalls = 0;
+  let requestStatus = 'pending';
+  const request = {
+    id: REQUEST_ID,
+    workshop_id: WORKSHOP_ID,
+    receipt_path: `${WORKSHOP_ID}/${REQUEST_ID}.png`,
+    status: requestStatus,
+    platform_workshops: { name: 'Taller Norte' },
+  };
   const router = createPlatformRouter({
     auth: { getUser: async () => ({ data: { user: { id: ADMIN_ID } }, error: null }) },
     store: {
       isAdmin: async id => id === ADMIN_ID,
-      listSubscriptionRequests: async () => [{
-        id: REQUEST_ID,
-        receipt_path: `${WORKSHOP_ID}/${REQUEST_ID}.png`,
-        status: 'pending',
-        platform_workshops: { name: 'Taller Norte' },
-      }],
+      listSubscriptionRequests: async () => [request],
+      getSubscriptionRequest: async () => ({ ...request, status: requestStatus }),
     },
     storage: {
       from: () => ({
         createSignedUrl: async (path, seconds) => {
+          signedCalls++;
           capturedSignedPath = path;
           assert.equal(seconds, 300);
           return { data: { signedUrl: 'https://storage.example/signed-receipt' }, error: null };
@@ -633,10 +639,54 @@ test('solo un administrador global puede crear, revisar y firmar recibos', async
     });
     assert.equal(response.status, 200);
     const body = await response.json();
-    assert.equal(body.requests[0].receiptUrl, 'https://storage.example/signed-receipt');
+    assert.equal('receiptUrl' in body.requests[0], false);
     assert.equal('receipt_path' in body.requests[0], false);
+    assert.equal(signedCalls, 0);
+
+    const signed = await fetch(`${base}/api/platform/subscriptions/${REQUEST_ID}/receipt`, {
+      headers: { Authorization: 'Bearer admin-session' },
+    });
+    assert.equal(signed.status, 200);
+    assert.deepEqual(await signed.json(), { receiptUrl: 'https://storage.example/signed-receipt' });
     assert.equal(capturedSignedPath, `${WORKSHOP_ID}/${REQUEST_ID}.png`);
+    assert.equal(signedCalls, 1);
+
+    requestStatus = 'approved';
+    const closed = await fetch(`${base}/api/platform/subscriptions/${REQUEST_ID}/receipt`, {
+      headers: { Authorization: 'Bearer admin-session' },
+    });
+    assert.equal(closed.status, 404);
+    assert.equal((await closed.json()).code, 'subscription_receipt_not_found');
+    assert.equal(signedCalls, 1);
   });
+});
+
+test('el enlace del comprobante exige administrador global', async () => {
+  let lookupCalls = 0;
+  let signedCalls = 0;
+  const router = createPlatformRouter({
+    auth: { getUser: async () => ({ data: { user: { id: OWNER_ID } }, error: null }) },
+    store: {
+      isAdmin: async () => false,
+      getSubscriptionRequest: async () => { lookupCalls++; return null; },
+    },
+    storage: {
+      from: () => ({ createSignedUrl: async () => { signedCalls++; return { data: { signedUrl: 'unused' }, error: null }; } }),
+    },
+  });
+  const app = express();
+  app.use('/api/platform', router);
+
+  await withServer(app, async base => {
+    const response = await fetch(`${base}/api/platform/subscriptions/${REQUEST_ID}/receipt`, {
+      headers: { Authorization: 'Bearer owner-session' },
+    });
+    assert.equal(response.status, 403);
+    assert.equal((await response.json()).code, 'platform_admin_required');
+  });
+
+  assert.equal(lookupCalls, 0);
+  assert.equal(signedCalls, 0);
 });
 
 test('libera la revisión si no se puede conectar a la base operativa del taller', async () => {

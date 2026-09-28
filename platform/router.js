@@ -781,15 +781,32 @@ function createPlatformRouter({ auth, store, secretBox, resolveConnection, makeC
     const requests = await store.listSubscriptionRequests({
       statuses: ['pending', 'reviewing'], limit: 100,
     });
-    const reviewed = await Promise.all(requests.map(async request => {
-      const signed = await storage.from(RECEIPT_BUCKET).createSignedUrl(request.receipt_path, 300);
-      if (signed.error || !signed.data?.signedUrl) {
-        reject(503, 'receipt_preview_unavailable', 'No fue posible abrir un comprobante.');
-      }
-      return { ...privateRequestView(request), receiptUrl: signed.data.signedUrl };
-    }));
     res.set('Cache-Control', 'no-store');
-    res.json({ requests: reviewed });
+    res.json({ requests: requests.map(privateRequestView) });
+  }));
+
+  router.get('/subscriptions/:id/receipt', asyncRoute(async (req, res) => {
+    admin(req);
+    if (!storage?.from) reject(503, 'receipt_storage_unavailable', 'Los comprobantes no están disponibles por ahora.');
+    const id = uuid(req.params.id);
+    const request = await store.getSubscriptionRequest(id);
+    if (!request || !['pending', 'reviewing'].includes(request.status)) {
+      reject(404, 'subscription_receipt_not_found', 'El comprobante ya no está disponible para revisión.');
+    }
+    const expectedPrefix = `${request.workshop_id}/${id}.`;
+    const extension = typeof request.receipt_path === 'string' &&
+      request.receipt_path.startsWith(expectedPrefix)
+      ? request.receipt_path.slice(expectedPrefix.length).toLowerCase()
+      : '';
+    if (!['jpg', 'jpeg', 'png', 'webp'].includes(extension)) {
+      reject(404, 'subscription_receipt_not_found', 'El comprobante ya no está disponible para revisión.');
+    }
+    const signed = await storage.from(RECEIPT_BUCKET).createSignedUrl(request.receipt_path, 300);
+    if (signed.error || !signed.data?.signedUrl) {
+      reject(503, 'receipt_preview_unavailable', 'No fue posible abrir un comprobante.');
+    }
+    res.set('Cache-Control', 'no-store');
+    res.json({ receiptUrl: signed.data.signedUrl });
   }));
 
   router.post('/subscriptions/:id/review', asyncRoute(async (req, res) => {
